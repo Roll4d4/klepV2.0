@@ -20,7 +20,7 @@ clearly identify itself as an open hypothesis.
 
 ## Present review boundary
 
-As of `2.0.0-preview.1`:
+As of `2.0.0-preview.2` (public milestone **Preview 0.1.1**):
 
 - the repository is maintained by one project owner;
 - its contract suites and CI are project-authored internal evidence;

@@ -9,21 +9,22 @@ registry remains outside this slice.
 A world sensor is split deliberately:
 
 1. A Unity component samples Physics, input, scene objects, or another external
-   system before a decision Tick.
+   system before an Agent decision Tick.
 2. A pure Core Tandem Executable receives the sampled value.
-3. `KLEPAgent.Tick` advances its Neuron exactly once.
+3. `KLEPAgent.Tick` exclusively commits one guarded Neuron Local boundary and
+   owns all runtime scheduling and firing.
 4. The Executable publishes Key operations at the normal Tandem wave barrier.
 
 The runner is the default owner of a Unity `Update` and is an optional frame
 host for `TickOnce`. Sensors, Executables, the Agent, and the Neuron have no
 independent `Update`/`FixedUpdate` decision path. A server, test, turn
 controller, or explicit world host can disable automatic ticking and call
-`TickOnce` itself. A host coordinating several Neurons must declare their Tick
-and external-state synchronization order.
+`TickOnce` itself. A host coordinating several Agent/Neuron pairs must declare
+their Agent-Tick and external-state synchronization order.
 
 Observation sources are registered and sampled in ordinal stable-ID order.
 Inactive or disabled sources remain registered but are sampled as false, which
-prevents their last observation from leaking into later Ticks.
+prevents their last observation from leaking into later Agent Ticks.
 
 Source membership is frozen when the runner initializes. Adding, reparenting,
 or removing sensor components at runtime is not silently reflected in the Core
@@ -37,18 +38,19 @@ The Ground slice contains:
 
 - `KLEPGroundSensor`, the Unity scene `PhysicsScene.OverlapSphere` adapter;
 - `KLEPObservedKeySensorExecutable`, the pure presence-to-Key behavior;
-- `KLEPNeuronRunner`, the Unity host that samples then Ticks;
+- `KLEPNeuronRunner`, the Unity host that samples then calls its Agent Tick;
 - `KLEPKeyDefinitionCache`, which compiles each assigned Key asset once for the
   runner and rejects different assets that claim the same stable Key ID.
 
 The Ground Key must be Local and `OneCycle`:
 
 - sampled true: add one Ground occurrence;
-- sampled false: add nothing;
+- sampled false: add nothing and do not report a successful run whose declared
+  Ground output was omitted;
 - repeated true: the old occurrence expires and one current occurrence is
   emitted, so Ground does not accumulate;
-- true can unlock a Solo behavior later in the same Neuron Tick;
-- false on a later Tick leaves Ground absent before Solo selection.
+- true can unlock a Solo behavior later in the same Agent Tick;
+- false on a later Agent Tick leaves Ground absent before Solo selection.
 
 The sensor uses its assigned center Transform, or its own Transform when center
 is empty. Radius must be finite and greater than zero. The layer mask and trigger
@@ -63,12 +65,12 @@ empty mask is rejected during initialization rather than silently staying false.
 3. Author a stable sensor ID, usually such as `sensor.ground`.
 4. Assign the feet Transform, probe radius, dedicated ground layers that exclude
    the agent's collider layers, and a Local `OneCycle` Ground `KLEPKeyAsset`.
-5. Leave automatic Tick enabled for one decision Tick per Unity frame, or turn
+5. Leave automatic Tick enabled for one Agent decision Tick per Unity frame, or turn
    it off when another simulation host calls `TickOnce`.
 
 The runner also discovers `IKLEPExecutableProvider` components for pure Action,
 Router, and Goal Executables, plus `IKLEPAgentTickSink` components that apply
-Unity effects after the completed Tick. Providers and sinks are sorted by stable
+Unity effects after the completed Agent Tick. Providers and sinks are sorted by stable
 ID and must remain active while their runner advances. Generic Inspector-first
 authoring components remain later behavior-library slices; the zombie test uses
 one deliberately narrow controller provider/sink.
@@ -86,7 +88,7 @@ modified, not whether it exists:
 
 For a continuously sampled fact, replacement is often unnecessary. A
 `OneCycle` sensor can emit a fresh occurrence with the current payload every
-Tick. If the observation disappears, the prior occurrence expires naturally.
+Agent Tick. If the observation disappears, the prior occurrence expires naturally.
 A persistent fact such as Health or ChosenTarget is updated with exact-fact
 replacement.
 
@@ -119,11 +121,13 @@ The Unity adapter:
 3. collapse several colliders belonging to the same entity;
 4. sort detections by `entityId` using ordinal comparison;
 5. register `entityId -> Unity entity/Transform` in a Unity-side resolver;
-6. supply the ordered immutable payloads before the Tick.
+6. supply the ordered immutable payloads before the Agent Tick.
 
 The pure Core sensor emits one declared `EnemyDetected` Add per supplied
-payload. Re-emission updates current position and distance without mutating an
-old fact. Missing enemies are not re-emitted, so their observations expire.
+payload. With no supplied enemy it emits nothing and does not report a
+successful run that omitted `EnemyDetected`. Re-emission updates current
+position and distance without mutating an old fact. Missing enemies are not
+re-emitted, so their observations expire.
 
 Behaviors that only reason symbolically read the payload directly. A Unity
 movement or aiming adapter that needs a live Transform resolves `entityId`
@@ -144,7 +148,8 @@ that sensor explicitly and resolves a live target only after the Agent Tick.
 There is no static/global registry. Spawned-ID policy, persistence, and generic
 cross-scene ownership remain open.
 
-The original pre-Goal vertical slice was:
+The original pre-Goal vertical slice was the following historical conditional
+Router shape; it is not the current guaranteed-output authoring contract:
 
 ```text
 Ground Sensor ───────────────> Ground
@@ -156,10 +161,14 @@ Ground + MoveTarget ─────────> Move Solo (Running)
 Ground + AttackTarget ───────> Attack Solo (Succeeded)
 ```
 
-The Router runs in a later Tandem wave than the Sensors, so the chosen target is
-available to final Solo selection in the same Tick. Move and Attack commands are
-mutually exclusive. Unity movement is measured in authored units per Tick, and
-the attack effect is applied only from that Tick's succeeded Attack trace.
+The guaranteed-output replacement uses two independently truthful Tandem
+Executables: a MoveTarget Router that declares only MoveTarget and succeeds only
+outside range, and an AttackTarget Router that declares only AttackTarget and
+succeeds only inside range. A nonmatching route emits nothing and does not claim
+success. They run in a later Tandem wave than the Sensors, so exactly one target
+is available to final Solo selection in the same Agent Tick. Unity movement is
+measured in authored units per Agent Tick, and the attack effect is applied only
+from that Tick's succeeded Attack trace.
 
 ## Zombie Goal showcase
 
@@ -178,8 +187,12 @@ Ground + EnemyDetected -------------> nearest-target Router
  10  Goal Wander     -- Any [Wander action (Running)]
 ```
 
+In that compact diagram, "nearest-target Router" is shorthand for the two
+separately declared range routes above; it is not one successful Executable with
+conditional declared output.
+
 Each Goal is one root Solo candidate and owns its children exclusively. The
-Neuron sees only the three Goals during Solo arbitration. Eat Human considers
+Agent sees only the three Goals during Solo arbitration. Eat Human considers
 Attack before Move in authored order: a blocked Attack permits Move to run;
 an eligible Attack succeeds first and completes that Goal. Avoid Edge and
 Wander deliberately remain Running while their factual Locks remain open.
@@ -194,17 +207,18 @@ The edge adapter issues eight separate downward raycasts around the body in
 fixed clockwise order: front, front-right, right, back-right, back, back-left,
 left, front-left. Physics remains in Unity. A pure reducer copies the support
 mask and derives a finite local avoidance vector. Full support emits no
-EdgeDanger; symmetric missing patterns use the lowest missing ordinal as a
-stable fallback rather than engine randomness.
+EdgeDanger and the sensor does not claim successful completion with that
+declared output omitted; symmetric missing patterns use the lowest missing
+ordinal as a stable fallback rather than engine randomness.
 
 The deterministic wander Router uses an explicit unsigned seed, a positive
 segment length, and a fixed table of eight normalized local headings. Its
-OneCycle WanderDirection payload is recreated each Tick. Wall time, Unity
+OneCycle WanderDirection payload is recreated each Agent Tick. Wall time, Unity
 randomness, `System.Random`, and process-dependent string hashing do not
 participate.
 
 The Unity controller retains its owned action objects only as a narrow effect
-adapter. After the completed Tick, it applies an intent only when the child's
+adapter. After the completed Agent Tick, it applies an intent only when the child's
 recorded cycle equals that trace's cycle. Children do not become Neuron roots,
 and the Observatory continues to show them recursively beneath their Goal.
 
@@ -223,6 +237,7 @@ Ground + MouseAim ------> Player Locomotion Solo (Running)
 
 All five input Keys are Local `OneCycle` facts. Opposing directions cancel,
 diagonals normalize, and no held direction means aim-only rotation. W therefore
-means forward relative to the facing produced by the same Tick's MouseAim fact.
+means forward relative to the facing produced by the same Agent Tick's MouseAim
+fact.
 The pure behavior and production controller do not depend on Unity's Input
 System; only the dedicated demo sensor assembly reads the devices.

@@ -6,7 +6,7 @@ namespace Roll4d4.Klep.Core
 {
     /// <summary>
     /// One Goal-owned child frozen at the same boundary as its owning
-    /// Neuron's decision trace. The runtime object itself is never exposed.
+    /// Agent's decision trace. The runtime object itself is never exposed.
     /// </summary>
     public sealed class KLEPGoalChildRuntimeSnapshot
     {
@@ -352,7 +352,8 @@ namespace Roll4d4.Klep.Core
             bool isPatient,
             KLEPGuidanceAdviceApplicationTrace guidanceAdvice,
             KLEPExecutionFaultTrace fault,
-            IEnumerable<KLEPExecutableRuntimeSnapshot> executableStates)
+            IEnumerable<KLEPExecutableRuntimeSnapshot> executableStates,
+            KLEPStructuralMapDecisionTrace structuralMap = null)
         {
             CycleIndex = cycleIndex;
             InitialKeySnapshot = initialKeySnapshot ??
@@ -369,6 +370,8 @@ namespace Roll4d4.Klep.Core
             IsPatient = isPatient;
             GuidanceAdvice = guidanceAdvice;
             Fault = fault;
+            StructuralMap = structuralMap ??
+                KLEPStructuralMapDecisionTrace.Empty;
         }
 
         public long CycleIndex { get; }
@@ -384,6 +387,7 @@ namespace Roll4d4.Klep.Core
         public bool IsPatient { get; }
         public KLEPGuidanceAdviceApplicationTrace GuidanceAdvice { get; }
         public KLEPExecutionFaultTrace Fault { get; }
+        public KLEPStructuralMapDecisionTrace StructuralMap { get; }
 
         // Retained as a source-compatible diagnostic during the rewrite. The
         // lifecycle is implemented now, so it is never pending.

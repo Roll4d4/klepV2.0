@@ -15,8 +15,13 @@ project context and observed causal moments
     -> KLEPEmotion
     -> KLEPMemory
     -> read-only Memory and Emotion evidence policies
-    -> KLEPObserver
-    -> next-Tick guidance for an already-eligible Agent target
+    -> project KLEPObserver evidence extension
+    -> optional next-Agent-Tick guidance for an already-eligible target
+
+Neuron recursive Executable catalog
+    -> mandatory baseline/project KLEPObserver structural validation and map
+    -> immutable assessment/projections
+    -> Agent-owned decision
 ```
 
 The composition validates that Ethics, Emotion, and Memory use the same exact
@@ -32,8 +37,10 @@ Emotion or Memory, and must not share Agent-specific mutable cognition state
 across several runners.
 
 The assembly has no Unity or editor reference. It neither constructs nor Ticks
-a Neuron or Agent. A host injects the composition's Observer through the ordinary
-Agent construction boundary.
+a Neuron or Agent. A host injects the composition's higher-cognition Observer
+through the ordinary Agent construction boundary. Every Agent still has the
+mandatory structural validation/map service; without this composition, KLEP's
+deterministic baseline Observer supplies it.
 
 ## Closing one causal experience
 
@@ -97,12 +104,13 @@ rollback: trusted policy is still obligated not to mutate the injected source.
 
 ## Candidate Unity Agent construction seam
 
-This section describes Candidate KLEP-UNITY-005, not an approved pure-runtime
-rule.
+This section describes Candidate KLEP-UNITY-008, not an approved pure-runtime
+rule. KLEP-UNITY-005 is retained as superseded history in `DECISIONS.md`.
 
-`KLEPNeuronRunner` still owns only observation, one Agent Tick, Unity effect
-sinks, and diagnostics. Before initialization it may receive one programmatic
-configuration/Observer pair, or discover exactly one owned active
+`KLEPNeuronRunner` still owns only observation, hosting one Agent Tick, Unity
+effect sinks, and diagnostics. Before initialization it may receive one
+programmatic configuration/higher-cognition-Observer pair, or discover exactly
+one owned active
 `IKLEPAgentCompositionSource`. A second programmatic assignment is rejected.
 The source returns a `KLEPAgentComposition` without receiving the new Neuron as
 a mutation handle. Supplying both paths, multiple owned sources, an inactive
@@ -119,9 +127,11 @@ covered outside Play Mode for exact-one discovery, programmatic injection,
 successful-build caching, failed/null retries, inactive sources, path conflicts,
 and source disappearance, replacement, or rename.
 
-The runner then constructs `KLEPAgent(neuron, configuration, observer)`. With no
-source it preserves the default Agent and no-Observer behavior. Project-specific
-hosts may implement the interface without adding Unity to the cognition layer.
+The runner then constructs the Agent with the Neuron, configuration, and any
+project Observer extension. With no source it preserves the default Agent and
+mandatory deterministic baseline structural Observer; only project cognition
+and optional low-confidence deliberation are absent. Project-specific hosts may
+implement the interface without adding Unity to the cognition layer.
 The ZombieTest contains one concrete project-owned source as construction and
 diagnostic evidence. That source deliberately has zero ethical rules and
 abstaining Memory/Emotion evidence policies, so attaching it cannot polish or

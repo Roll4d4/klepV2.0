@@ -9,6 +9,12 @@ symbolic behavior arbitration**. It makes perceived facts, eligibility,
 scoring, lifecycle, output, and the reason one behavior won available as
 immutable evidence.
 
+The Neuron is a passive Key and Executable-catalog substrate. Its exclusive
+Agent owns the decision clock, Executable and Goal runtime state, deterministic
+arbitration, and history. Every Agent also owns a revisioned recursive map of
+the behavior it can currently execute; optional Observer policy may project
+complete candidate outcomes or polish scores, but it cannot bypass Locks.
+
 This is preview source. It is not a claim of human cognition, a scientific
 validation of a cognitive architecture, or a proven replacement for behavior
 trees, GOAP, utility AI, state machines, or rule engines. Start with
@@ -54,9 +60,10 @@ The familiar concepts have stricter local meanings:
 | Key | typed blackboard fact | immutable occurrence with scope, payload, lifetime, provenance, and store authority |
 | Lock | predicate or precondition | pure evaluation over one frozen Key snapshot |
 | Executable | action, sensor, rule, or behavior node | declared output plus explicit lifecycle, teardown, and trace evidence |
-| Neuron | utility selector and scheduler | deterministic Tandem settlement followed by at most one eligible Solo behavior |
-| Goal | scored composite | owns ordered child layers; it is not a search planner |
-| Observer | advisor or score influence | may rank eligible roots and may never bypass Locks |
+| Neuron | blackboard and behavior catalog | passive Key storage plus the registered root Executable set |
+| Agent | utility selector and scheduler | exclusive decision clock, runtime ownership, deterministic Tandem settlement, then at most one eligible Solo behavior |
+| Goal | composite Executable | owns ordered child layers and may run in Solo or Tandem; it is not a search planner |
+| Observer | structural and advisory policy seam | maps the Executable catalog and may project or rank eligible roots, but may never bypass Locks |
 
 KLEP's adoption case is not that those ingredients are new. It is their shared
 execution contract: immutable evaluation snapshots, staged Key mutations,
@@ -77,8 +84,9 @@ are bounded computational mechanisms and project vocabulary:
   repetition, fading, and scoring. It does not create world truth.
 - Agent learning performs a tabular temporal-difference update over symbolic
   state and root behavior identities. It is not general learning or planning.
-- Observer evidence may adjust the rank of valid behavior. It cannot make an
-  invalid behavior possible.
+- Observer policy may map structure, supply a complete projected state, or
+  adjust the rank of valid behavior. It cannot make invalid behavior possible,
+  and the safe baseline abstains from claiming unknown outcomes.
 
 The older phrase "higher cognition" describes this optional composition seam
 inside the project. It is not an empirical result or cognitive-science
@@ -87,8 +95,8 @@ classification.
 ## Evidence, stated at its actual strength
 
 The repository contains 13 project-authored, dependency-free console suites.
-The current run executes **4,163 assertions**. That number means assertion
-executions, including repetitions inside scenarios; it does not mean 4,163
+The current run executes **4,405 assertions**. That number means assertion
+executions, including repetitions inside scenarios; it does not mean 4,405
 independent tests.
 
 Nine suites are mapped to approved CoreContract behavior. Three exercise
@@ -119,9 +127,9 @@ CI executes those project-owned checks on every push and pull request.
 
 ```text
 src/Roll4d4.Klep/
-  Core/          Keys, Locks, Neuron, Executables, Goals, Agent
+  Core/          Keys, Locks, passive Neuron, Executables, Goals, Agent runtime
   Behaviors/     engine-free observation, input, and behavior recipes
-  Observer/      eligibility-gated guidance and traceable polish
+  Observer/      structural mapping, safe projection seam, traceable polish
   Emotion/       two-axis motion, influence, friction, and snapshots
   Ethics/        project-owned contextual evaluation boundary
   Memory/        experience, heat, consolidation, recall, continuation state
@@ -140,7 +148,7 @@ Unity project and not a NuGet distribution (`IsPackable=false`). Unity hosts,
 the Editor Observatory, and the versioned UPM tarball live on
 [itch.io](https://roll4d4.itch.io/klep).
 
-`2.0.0-preview.1` does not promise API stability, production fitness, benchmark
+`2.0.0-preview.2` (public milestone **Preview 0.1.1**) does not promise API stability, production fitness, benchmark
 results, persistence, networking, a general planner, an imagination model, or
 automatic project integration. Evaluate one real behavior, inspect its trace,
 measure your workload, and pin the exact reviewed commit before depending on

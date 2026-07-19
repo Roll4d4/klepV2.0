@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../KLEPAgentTestDriver.cs"
+             Link="Tests/KLEPAgentTestDriver.cs" />
     <ProjectReference Include="../../src/Roll4d4.Klep/Roll4d4.Klep.csproj" />
   </ItemGroup>
 </Project>

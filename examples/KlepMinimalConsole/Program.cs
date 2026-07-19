@@ -70,17 +70,18 @@ internal static class Program
 
         var neuron = new KLEPNeuron("neuron.zombie.example");
 
-        // Registration order is deliberately not scheduling order. The Neuron
+        // Registration order is deliberately not scheduling order. The Agent
         // uses stable identities, execution modes, eligibility, and score.
         neuron.RegisterExecutable(wander);
         neuron.RegisterExecutable(eatHuman);
         neuron.RegisterExecutable(humanSensor);
+        var agent = new KLEPAgent(neuron);
 
         var signatures = new List<string>(observations.Count);
         for (int index = 0; index < observations.Count; index++)
         {
             humanSensor.SetObservation(observations[index]);
-            KLEPDecisionTrace trace = neuron.Tick();
+            KLEPDecisionTrace trace = agent.Tick().Decision;
 
             if (!StringComparer.Ordinal.Equals(
                     trace.SelectedExecutableId,

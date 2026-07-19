@@ -16,6 +16,7 @@ internal static class Program
     private const string EnemySensorId = "sensor.enemy";
     private const string EdgeSensorId = "sensor.edge";
     private const string TargetRouterId = "router.target";
+    private const string AttackTargetRouterId = TargetRouterId + ".attack";
     private const string WanderRouterId = "router.wander";
     private const string MoveId = "action.move";
     private const string AttackId = "action.attack";
@@ -62,6 +63,14 @@ internal static class Program
                    KLEPExecutableStepKind.Solo)?.State ==
                KLEPExecutableState.Running,
             "The Wander Goal remains Running");
+        KLEPExecutableStepTrace emptyEdgeSample = FindStep(
+            wandering,
+            EdgeSensorId,
+            KLEPExecutableStepKind.Tandem);
+        Expect(emptyEdgeSample != null &&
+               emptyEdgeSample.State == KLEPExecutableState.Failed &&
+               emptyEdgeSample.Outputs.Count == 0,
+            "An all-supported edge sample fails without claiming its EdgeDanger guarantee");
 
         KLEPExecutableRuntimeSnapshot wanderRoot = FindRoot(
             wandering,
@@ -174,6 +183,15 @@ internal static class Program
             Human("human.edge", 7d));
         KLEPDecisionTrace avoiding = fixture.Agent.Tick().Decision;
 
+        KLEPExecutableStepTrace edgeSample = FindStep(
+            avoiding,
+            EdgeSensorId,
+            KLEPExecutableStepKind.Tandem);
+        Expect(edgeSample != null &&
+               edgeSample.State == KLEPExecutableState.Succeeded &&
+               edgeSample.Outputs.Count == 1 &&
+               edgeSample.Outputs[0].KeyId.Value == EdgeDangerId,
+            "A detected edge succeeds only after publishing its guaranteed EdgeDanger output");
         Expect(avoiding.SelectedExecutableId == AvoidGoalId &&
                avoiding.CurrentSoloExecutableId == AvoidGoalId,
             "Edge evidence selects Avoid Edge even while a human is present");
@@ -245,12 +263,16 @@ internal static class Program
     {
         IReadOnlyList<KLEPExecutableDefinition> roots =
             fixture.Neuron.GetRootExecutableDefinitionsSnapshot();
-        Expect(roots.Count == 8,
-            "The showcase registers three Sensors, two Routers, and three Goals as roots");
+        Expect(roots.Count == 9,
+            "The showcase registers three Sensors, three Routers, and three Goals as roots");
         Expect(ContainsDefinition(roots, EatGoalId) &&
                ContainsDefinition(roots, WanderGoalId) &&
                ContainsDefinition(roots, AvoidGoalId),
             "All three Goals are present in the root definition inventory");
+        Expect(ContainsDefinition(roots, TargetRouterId) &&
+               ContainsDefinition(roots, AttackTargetRouterId) &&
+               ContainsDefinition(roots, WanderRouterId),
+            "Move, Attack, and Wander Routers are distinct root definitions");
         Expect(!ContainsDefinition(roots, MoveId) &&
                !ContainsDefinition(roots, AttackId) &&
                !ContainsDefinition(roots, WanderId) &&
@@ -674,13 +696,23 @@ internal static class Program
                     null,
                     EdgeDanger),
                 EdgeDanger);
-            TargetRouter = new KLEPEnemyTargetRouterExecutable(
+            MoveTargetRouter = new KLEPEnemyTargetRouterExecutable(
                 TandemDefinition(
                     TargetRouterId,
-                    "Target Router",
+                    "Move Target Router",
                     KLEPExecutableKind.Router,
                     new KLEPAll(Present(Ground), Present(Enemy)),
-                    MoveTarget,
+                    MoveTarget),
+                Enemy,
+                MoveTarget,
+                AttackTarget,
+                AttackRange);
+            AttackTargetRouter = new KLEPEnemyTargetRouterExecutable(
+                TandemDefinition(
+                    AttackTargetRouterId,
+                    "Attack Target Router",
+                    KLEPExecutableKind.Router,
+                    new KLEPAll(Present(Ground), Present(Enemy)),
                     AttackTarget),
                 Enemy,
                 MoveTarget,
@@ -772,7 +804,8 @@ internal static class Program
                      {
                          WanderGoal,
                          EdgeSensor,
-                         TargetRouter,
+                         MoveTargetRouter,
+                         AttackTargetRouter,
                          EatGoal,
                          GroundSensor,
                          AvoidGoal,
@@ -795,7 +828,8 @@ internal static class Program
         internal KLEPObservedKeySensorExecutable GroundSensor { get; }
         internal KLEPEnemyObservationSensorExecutable EnemySensor { get; }
         internal KLEPEdgeObservationSensorExecutable EdgeSensor { get; }
-        internal KLEPEnemyTargetRouterExecutable TargetRouter { get; }
+        internal KLEPEnemyTargetRouterExecutable MoveTargetRouter { get; }
+        internal KLEPEnemyTargetRouterExecutable AttackTargetRouter { get; }
         internal KLEPDeterministicWanderRouterExecutable WanderRouter { get; }
         internal KLEPZombieMoveExecutable Move { get; }
         internal KLEPZombieAttackExecutable Attack { get; }

@@ -28,7 +28,7 @@ internal static class Program
         VerifyTickFaultIsTracedCleanedAndRethrown();
         VerifyTandemCascadeSettlesBeforeSolo();
         VerifyProcessedRunningTandemWaitsUntilNextTickForLockCancellation();
-        VerifyDeclaredButUnemittedOutputDoesNotCreateWave();
+        VerifyDeclaredOutputOmissionFaultsBeforePublication();
         VerifyUndeclaredOutputFaults();
         VerifyWavePeersShareSnapshot();
         VerifySoloOutputIsDeferred();
@@ -39,6 +39,9 @@ internal static class Program
         VerifyGoalAnyUsesAuthoredSerialOrder();
         VerifyGoalNoneSkipsChildren();
         VerifyGoalOwnScoreAndExclusiveOwnership();
+        VerifyGoalIntrinsicAttractionUsesFinalTandemSnapshot();
+        VerifyGoalIntrinsicAttractionGuardsAndFaultTrace();
+        VerifyTandemGoalIsUnscoredAutomaticComposite();
         VerifyGoalActivationEmitsOncePerRun();
         VerifyGoalCanBeginAnotherRegistrationTenure();
         VerifyFailedGoalConstructionDoesNotClaimEarlierChildren();
@@ -47,6 +50,8 @@ internal static class Program
         VerifyCrossScopeOutputCannotPoisonNeuron();
         VerifyFaultedOutputBatchRollsBackAllStores();
         VerifyTandemPeerUnwindsWhenWaveFaults();
+        VerifyInitializationCallbackFaultRejectsWholeRegistrationBoundary();
+        VerifyInitializationOutputFaultRejectsWholeRegistrationBoundary();
         VerifyInitializationOutputFailureRejectsRegistration();
         VerifyGoalChildFaultKeepsChildIdentity();
         VerifyGoalCancellationContinuesAfterChildFault();
@@ -139,7 +144,7 @@ internal static class Program
             "Goal retains its base Executable stable identity");
         var neuron = new KLEPNeuron("neuron.goal-shape");
         neuron.RegisterExecutable(goal);
-        Expect(neuron.Tick().SelectedExecutableId == "goal.survive",
+        Expect(neuron.TickViaAgent().SelectedExecutableId == "goal.survive",
             "Neuron accepts a Goal through the inherited Executable base contract");
         ExpectThrows<ArgumentException>(() => new TestGoal(
             new KLEPExecutableDefinition(
@@ -192,9 +197,9 @@ internal static class Program
         neuron.RegisterExecutable(MakeExecutable("exe.a", 2f));
         neuron.RegisterExecutable(MakeExecutable("exe.b", 3f));
 
-        Expect(neuron.LastTrace.Candidates.Count == 0,
+        Expect(neuron.LastDecisionViaAgent().Candidates.Count == 0,
             "Registration is staged until the next Tick");
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(trace.Candidates.Count == 3 &&
                trace.Candidates[0].StableId == "exe.a" &&
@@ -214,17 +219,17 @@ internal static class Program
         var tieNeuron = new KLEPNeuron("neuron.tie");
         tieNeuron.RegisterExecutable(MakeExecutable("exe.z", 5f));
         tieNeuron.RegisterExecutable(MakeExecutable("exe.a", 5f));
-        KLEPDecisionTrace tie = tieNeuron.Tick();
+        KLEPDecisionTrace tie = tieNeuron.TickViaAgent();
         Expect(tie.SelectedExecutableId == "exe.a",
             "Ordinal-lowest stable ID wins an equal-score tie");
 
         var patientNeuron = new KLEPNeuron("neuron.patient");
         patientNeuron.RegisterExecutable(MakeExecutable("exe.equal", 5f));
-        KLEPDecisionTrace patient = patientNeuron.Tick(5f);
+        KLEPDecisionTrace patient = patientNeuron.TickViaAgent(5f);
         Expect(patient.IsPatient && patient.SelectedExecutableId == null,
             "A score equal to the strict threshold remains patient");
         ExpectThrows<ArgumentOutOfRangeException>(() =>
-            patientNeuron.Tick(float.PositiveInfinity),
+            patientNeuron.TickViaAgent(float.PositiveInfinity),
             "Non-finite certainty thresholds are rejected");
     }
 
@@ -238,7 +243,7 @@ internal static class Program
             neuron.RegisterExecutable(MakeExecutable("exe.same", 2f)),
             "A staged Executable cannot be silently replaced by the same stable ID");
 
-        neuron.Tick();
+        neuron.TickViaAgent();
         TestExecutable replacement = MakeExecutable("exe.same", 2f);
         ExpectThrows<InvalidOperationException>(() =>
             neuron.RegisterExecutable(replacement),
@@ -246,7 +251,7 @@ internal static class Program
 
         neuron.RemoveExecutable("exe.same");
         neuron.RegisterExecutable(replacement);
-        Expect(neuron.Tick().Candidates[0].Score == 2f,
+        Expect(neuron.TickViaAgent().Candidates[0].Score == 2f,
             "An explicit staged removal permits deterministic same-boundary replacement");
     }
 
@@ -269,14 +274,14 @@ internal static class Program
                 baseAttractiveness: 1f));
         neuron.RegisterExecutable(death);
 
-        KLEPDecisionTrace alive = neuron.Tick();
+        KLEPDecisionTrace alive = neuron.TickViaAgent();
         Expect(alive.IsPatient && !alive.Candidates[0].IsEligible,
             "Death behavior is blocked while Health exists");
         Expect(alive.Candidates[0].Eligibility.ExecutableEvaluation != null,
             "Neuron trace retains the full Executable gate evaluation");
 
         neuron.RemoveKey(healthFact);
-        KLEPDecisionTrace dead = neuron.Tick();
+        KLEPDecisionTrace dead = neuron.TickViaAgent();
         Expect(dead.SelectedExecutableId == "exe.death",
             "Death behavior becomes eligible after exact Health removal commits");
     }
@@ -304,10 +309,15 @@ internal static class Program
             },
             declaredOutputs: new[] { ready });
         probe.InitializeAction = context => context.Add(ready);
+        probe.TickAction = context =>
+        {
+            context.Add(ready);
+            return KLEPExecutableTickStatus.Succeeded;
+        };
 
         var neuron = new KLEPNeuron("neuron.init-output");
         neuron.RegisterExecutable(probe);
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
 
         Expect(probe.InitializeCount == 1 && probe.TickCount == 1,
             "Initialization runs once and its Executable advances in the registration Tick");
@@ -320,7 +330,7 @@ internal static class Program
         Expect(first.Candidates.Count == 1 && first.Candidates[0].IsEligible,
             "Initialization output can satisfy the Executable's own first eligibility check");
 
-        neuron.Tick();
+        neuron.TickViaAgent();
         Expect(probe.InitializeCount == 1,
             "A registered Executable is never initialized again on a later run");
     }
@@ -335,7 +345,7 @@ internal static class Program
 
         var neuron = new KLEPNeuron("neuron.lifecycle");
         neuron.RegisterExecutable(probe);
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         Expect(probe.InitializeCount == 1 && probe.EnterCount == 1 &&
                probe.TickCount == 1 && probe.ExitCount == 0 &&
                probe.CleanupCount == 0,
@@ -343,11 +353,11 @@ internal static class Program
         Expect(first.CurrentSoloExecutableId == probe.StableId,
             "A Running Solo remains current after its first Tick");
 
-        neuron.Tick();
+        neuron.TickViaAgent();
         Expect(probe.EnterCount == 1 && probe.TickCount == 2,
             "A Running Executable ticks again without re-entering");
 
-        KLEPDecisionTrace terminal = neuron.Tick();
+        KLEPDecisionTrace terminal = neuron.TickViaAgent();
         Expect(probe.EnterCount == 1 && probe.TickCount == 3 &&
                probe.ExitCount == 1 && probe.CleanupCount == 1,
             "Succeeded performs Exit and Cleanup exactly once");
@@ -373,7 +383,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.failure-no-fallback");
         neuron.RegisterExecutable(fallback);
         neuron.RegisterExecutable(winner);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(winner.TickCount == 1 && winner.ExitCount == 1 &&
                winner.CleanupCount == 1,
@@ -402,7 +412,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.failed-output");
         neuron.RegisterExecutable(failing);
 
-        KLEPDecisionTrace failed = neuron.Tick();
+        KLEPDecisionTrace failed = neuron.TickViaAgent();
         KLEPExecutableStepTrace step = FindStep(
             failed, failing.StableId, KLEPExecutableStepKind.Solo);
         Expect(step != null && step.State == KLEPExecutableState.Failed &&
@@ -411,7 +421,7 @@ internal static class Program
             "A failed Tick discards its buffered output before staging");
 
         neuron.RemoveExecutable(failing.StableId);
-        KLEPDecisionTrace following = neuron.Tick();
+        KLEPDecisionTrace following = neuron.TickViaAgent();
         Expect(!following.InitialKeySnapshot.Contains(discarded.Id) &&
                !following.KeySnapshot.Contains(discarded.Id),
             "Discarded failure output cannot become visible at the following top-level boundary");
@@ -423,12 +433,12 @@ internal static class Program
         current.DefaultStatus = KLEPExecutableTickStatus.Running;
         var neuron = new KLEPNeuron("neuron.switching");
         neuron.RegisterExecutable(current);
-        neuron.Tick();
+        neuron.TickViaAgent();
 
         ProbeExecutable equal = MakeProbe("solo.a-equal", 5f);
         equal.DefaultStatus = KLEPExecutableTickStatus.Running;
         neuron.RegisterExecutable(equal);
-        KLEPDecisionTrace tie = neuron.Tick();
+        KLEPDecisionTrace tie = neuron.TickViaAgent();
         Expect(current.TickCount == 2 && current.EnterCount == 1 &&
                equal.TickCount == 0,
             "An equal-score challenger does not interrupt or re-enter the current Solo");
@@ -439,7 +449,7 @@ internal static class Program
         ProbeExecutable higher = MakeProbe("solo.b-higher", 6f);
         higher.DefaultStatus = KLEPExecutableTickStatus.Running;
         neuron.RegisterExecutable(higher);
-        KLEPDecisionTrace interrupted = neuron.Tick();
+        KLEPDecisionTrace interrupted = neuron.TickViaAgent();
         Expect(current.ExitCount == 1 && current.CleanupCount == 1 &&
                current.ExitContexts[0].Reason == KLEPExecutableExitReason.Interrupted,
             "A strictly higher score interrupts and tears down the current Solo");
@@ -460,7 +470,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.tandem-patient");
         neuron.RegisterExecutable(tandem);
 
-        KLEPDecisionTrace trace = neuron.Tick(100f);
+        KLEPDecisionTrace trace = neuron.TickViaAgent(100f);
         Expect(tandem.TickCount == 1 && trace.TandemWaves.Count == 1,
             "Eligible Tandem work advances independently of Solo scoring threshold");
         Expect(trace.IsPatient && trace.SelectedExecutableId == null &&
@@ -474,10 +484,10 @@ internal static class Program
         probe.DefaultStatus = KLEPExecutableTickStatus.Running;
         var neuron = new KLEPNeuron("neuron.remove-active");
         neuron.RegisterExecutable(probe);
-        neuron.Tick();
+        neuron.TickViaAgent();
 
         neuron.RemoveExecutable(probe.StableId);
-        KLEPDecisionTrace removed = neuron.Tick();
+        KLEPDecisionTrace removed = neuron.TickViaAgent();
         Expect(probe.TickCount == 1 && probe.ExitCount == 1 &&
                probe.CleanupCount == 1,
             "Removing an active Executable cancels without another Tick and tears down once");
@@ -491,7 +501,7 @@ internal static class Program
             "Active removal is inspectable in the decision trace");
 
         neuron.RemoveExecutable(probe.StableId);
-        neuron.Tick();
+        neuron.TickViaAgent();
         Expect(probe.ExitCount == 1 && probe.CleanupCount == 1,
             "Repeated removal cannot duplicate Exit or Cleanup");
     }
@@ -507,7 +517,7 @@ internal static class Program
         Exception observed = null;
         try
         {
-            neuron.Tick();
+            neuron.TickViaAgent();
         }
         catch (Exception fault)
         {
@@ -520,13 +530,13 @@ internal static class Program
                probe.ExitContexts[0].TerminalState == KLEPExecutableState.Faulted &&
                ReferenceEquals(probe.ExitContexts[0].Fault, sentinel),
             "A Tick fault exits and cleans the entered run exactly once with fault context");
-        Expect(neuron.LastTrace.Fault != null &&
-               neuron.LastTrace.Fault.ExecutableStableId == probe.StableId &&
-               neuron.LastTrace.Fault.Stage == KLEPExecutableLifecycleStage.Tick &&
-               neuron.LastTrace.Fault.Message == sentinel.Message,
+        Expect(neuron.LastDecisionViaAgent().Fault != null &&
+               neuron.LastDecisionViaAgent().Fault.ExecutableStableId == probe.StableId &&
+               neuron.LastDecisionViaAgent().Fault.Stage == KLEPExecutableLifecycleStage.Tick &&
+               neuron.LastDecisionViaAgent().Fault.Message == sentinel.Message,
             "The Neuron records the exact Executable, stage, and message before rethrowing");
         KLEPExecutableStepTrace step = FindStep(
-            neuron.LastTrace, probe.StableId, KLEPExecutableStepKind.Solo);
+            neuron.LastDecisionViaAgent(), probe.StableId, KLEPExecutableStepKind.Solo);
         Expect(step != null && step.State == KLEPExecutableState.Faulted,
             "The faulted lifecycle result remains inspectable after the throw");
     }
@@ -585,7 +595,7 @@ internal static class Program
         neuron.RegisterExecutable(solo);
         neuron.RegisterExecutable(sensor);
         neuron.RegisterExecutable(coverSensor);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(trace.TandemWaves.Count == 2 &&
                trace.TandemWaves[0].WaveIndex == 0 &&
@@ -649,7 +659,7 @@ internal static class Program
         neuron.RegisterExecutable(running);
         neuron.RegisterExecutable(closesLock);
 
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         KLEPExecutableStepTrace runningStep = FindStep(
             first, running.StableId, KLEPExecutableStepKind.Tandem);
         Expect(first.TandemWaves.Count == 2 &&
@@ -659,7 +669,7 @@ internal static class Program
                !first.KeySnapshot.Contains(permit.Id),
             "A processed Running Tandem is not reconsidered when a later same-Tick barrier closes its Locks");
 
-        KLEPDecisionTrace following = neuron.Tick();
+        KLEPDecisionTrace following = neuron.TickViaAgent();
         KLEPExecutableStepTrace cancellation = FindStep(
             following, running.StableId, KLEPExecutableStepKind.Cancellation);
         Expect(running.TickCount == 1 &&
@@ -671,7 +681,7 @@ internal static class Program
             "The Running Tandem observes its closed Locks and cancels at the following top-level Tick");
     }
 
-    private static void VerifyDeclaredButUnemittedOutputDoesNotCreateWave()
+    private static void VerifyDeclaredOutputOmissionFaultsBeforePublication()
     {
         KLEPKeyDefinition signal = MakeKey("key.unemitted-signal");
         ProbeExecutable producer = MakeProbe(
@@ -692,17 +702,18 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.no-phantom-wave");
         neuron.RegisterExecutable(producer);
         neuron.RegisterExecutable(dependent);
-        KLEPDecisionTrace trace = neuron.Tick();
+        Exception fault = Catch(() => neuron.TickViaAgent());
 
-        Expect(producer.TickCount == 1 && dependent.TickCount == 0,
-            "A declared but unemitted Key cannot unlock a blocked Tandem");
-        Expect(trace.TandemWaves.Count == 1 &&
-               !trace.TandemWaves[0].DidLocalStateChange &&
-               trace.TandemWaves[0].Termination ==
-                   KLEPTandemWaveTermination.NoLocalStateChange,
-            "No actual Local output stops Tandem settlement without another wave");
-        Expect(!trace.KeySnapshot.Contains(signal.Id),
-            "Output declarations never manufacture runtime Key facts");
+        Expect(fault is InvalidOperationException &&
+               producer.TickCount == 1 && dependent.TickCount == 0,
+            "an attempted success that omitted a declared output faults before it can unlock a dependent Tandem");
+        Expect(neuron.LastDecisionViaAgent().Fault != null &&
+               neuron.LastDecisionViaAgent().Fault.ExecutableStableId == producer.StableId &&
+               neuron.LastDecisionViaAgent().Fault.Stage ==
+                   KLEPExecutableLifecycleStage.DeclaredOutputValidation,
+            "declared-output omission is attributed to the exact Executable and validation stage");
+        Expect(!neuron.LastDecisionViaAgent().KeySnapshot.Contains(signal.Id),
+            "a declared-output fault never manufactures or publishes the missing Key");
     }
 
     private static void VerifyUndeclaredOutputFaults()
@@ -723,7 +734,7 @@ internal static class Program
         Exception observed = null;
         try
         {
-            neuron.Tick();
+            neuron.TickViaAgent();
         }
         catch (Exception fault)
         {
@@ -735,9 +746,9 @@ internal static class Program
             "Emitting an undeclared Add is a visible programming fault");
         Expect(probe.ExitCount == 1 && probe.CleanupCount == 1,
             "An undeclared emission still tears down the entered Tandem exactly once");
-        Expect(neuron.LastTrace.Fault != null &&
-               neuron.LastTrace.Fault.ExecutableStableId == probe.StableId &&
-               neuron.LastTrace.Fault.Stage == KLEPExecutableLifecycleStage.Tick,
+        Expect(neuron.LastDecisionViaAgent().Fault != null &&
+               neuron.LastDecisionViaAgent().Fault.ExecutableStableId == probe.StableId &&
+               neuron.LastDecisionViaAgent().Fault.Stage == KLEPExecutableLifecycleStage.Tick,
             "Undeclared emission records its Executable and lifecycle stage");
     }
 
@@ -762,7 +773,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.wave-peers");
         neuron.RegisterExecutable(second);
         neuron.RegisterExecutable(first);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(first.TickSnapshots.Count == 1 && second.TickSnapshots.Count == 1 &&
                ReferenceEquals(first.TickSnapshots[0], second.TickSnapshots[0]),
@@ -792,7 +803,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.solo-deferred");
         neuron.RegisterExecutable(solo);
 
-        KLEPDecisionTrace emitted = neuron.Tick();
+        KLEPDecisionTrace emitted = neuron.TickViaAgent();
         Expect(!emitted.KeySnapshot.Contains(command.Id),
             "Solo Local output does not alter the current Tick snapshot");
         KLEPExecutableStepTrace step = FindStep(
@@ -802,7 +813,7 @@ internal static class Program
             "The deferred Solo output remains inspectable in its execution result");
 
         neuron.RemoveExecutable(solo.StableId);
-        KLEPDecisionTrace visible = neuron.Tick();
+        KLEPDecisionTrace visible = neuron.TickViaAgent();
         Expect(visible.InitialKeySnapshot.Contains(command.Id) &&
                visible.KeySnapshot.Contains(command.Id) &&
                CountFacts(visible.KeySnapshot, command.Id) == 1,
@@ -829,17 +840,19 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-all");
         neuron.RegisterExecutable(goal);
 
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         Expect(firstChild.TickCount == 1 && secondChild.TickCount == 1 &&
-               goal.CurrentLayerIndex == 1 && !goal.IsComplete,
+               first.ExecutableStates[0].Goal.CurrentLayerIndex == 1 &&
+               !first.ExecutableStates[0].Goal.IsComplete,
             "All advances only after every child actually succeeds");
         KLEPExecutableStepTrace running = FindStep(
             first, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(running != null && running.State == KLEPExecutableState.Running,
             "Completing one Goal layer does not process the next layer in the same Tick");
 
-        KLEPDecisionTrace second = neuron.Tick();
-        Expect(goal.CurrentLayerIndex == 2 && goal.IsComplete &&
+        KLEPDecisionTrace second = neuron.TickViaAgent();
+        Expect(second.ExecutableStates[0].Goal.CurrentLayerIndex == 2 &&
+               second.ExecutableStates[0].Goal.IsComplete &&
                firstChild.TickCount == 1 && secondChild.TickCount == 1,
             "The following Tick processes exactly the next layer without refiring completed children");
         KLEPExecutableStepTrace succeeded = FindStep(
@@ -870,16 +883,16 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-all-retry");
         neuron.RegisterExecutable(goal);
 
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         KLEPExecutableStepTrace firstStep = FindStep(
             first, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(completed.TickCount == 1 && retry.TickCount == 1 &&
                firstStep != null &&
                firstStep.State == KLEPExecutableState.Running &&
-               !goal.IsComplete,
+               !first.ExecutableStates[0].Goal.IsComplete,
             "All preserves successful child progress while a failed sibling leaves the layer incomplete");
 
-        KLEPDecisionTrace second = neuron.Tick();
+        KLEPDecisionTrace second = neuron.TickViaAgent();
         KLEPExecutableStepTrace secondStep = FindStep(
             second, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(completed.TickCount == 1 &&
@@ -887,7 +900,7 @@ internal static class Program
                retry.EnterCount == 2 &&
                secondStep != null &&
                secondStep.State == KLEPExecutableState.Succeeded &&
-               goal.IsComplete,
+               second.ExecutableStates[0].Goal.IsComplete,
             "All skips the preserved success and retries the failed child on a later top-level Tick");
     }
 
@@ -913,7 +926,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-trace");
         neuron.RegisterExecutable(goal);
 
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         Expect(first.ExecutableStates.Count == 1 &&
                first.ExecutableStates[0].ExecutableStableId == goal.StableId &&
                first.ExecutableStates[0].State == KLEPExecutableState.Running &&
@@ -938,7 +951,7 @@ internal static class Program
             ((IList<KLEPExecutableRuntimeSnapshot>)first.ExecutableStates).Clear(),
             "Decision runtime snapshots cannot be modified through their collection");
 
-        KLEPDecisionTrace second = neuron.Tick();
+        KLEPDecisionTrace second = neuron.TickViaAgent();
         Expect(second.ExecutableStates[0].State == KLEPExecutableState.Succeeded &&
                second.ExecutableStates[0].Goal.IsComplete,
             "A later trace captures the later Goal completion");
@@ -973,14 +986,14 @@ internal static class Program
             });
         var neuron = new KLEPNeuron("neuron.goal-any");
         neuron.RegisterExecutable(goal);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(blocked.TickCount == 0 && succeeds.TickCount == 1,
             "A blocked, never-fired child cannot satisfy Any; an actual success can");
         KLEPExecutableStepTrace step = FindStep(
             trace, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(step != null && step.State == KLEPExecutableState.Succeeded &&
-               goal.IsComplete,
+               trace.ExecutableStates[0].Goal.IsComplete,
             "Any completes only after observing one child success");
     }
 
@@ -1039,7 +1052,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-any-serial");
         neuron.RegisterExecutable(goal);
 
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         KLEPExecutableStepTrace firstStep = FindStep(
             first, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(blocked.TickCount == 0 &&
@@ -1051,7 +1064,7 @@ internal static class Program
                firstStep.State == KLEPExecutableState.Running,
             "Any follows authored order past blocked and failed children, then stops when a child remains Running");
 
-        KLEPDecisionTrace second = neuron.Tick();
+        KLEPDecisionTrace second = neuron.TickViaAgent();
         KLEPExecutableStepTrace secondStep = FindStep(
             second, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(failed.TickCount == 2 &&
@@ -1084,7 +1097,7 @@ internal static class Program
             });
         var neuron = new KLEPNeuron("neuron.goal-none");
         neuron.RegisterExecutable(goal);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(mustNotRun.InitializeCount == 1 && mustNotRun.TickCount == 0,
             "None initializes owned structure but never executes its children");
@@ -1117,11 +1130,250 @@ internal static class Program
             "A Goal-owned child cannot also register as a Neuron root");
         neuron.RegisterExecutable(goal);
         neuron.RegisterExecutable(competitor);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(trace.SelectedExecutableId == competitor.StableId &&
                attractiveChild.TickCount == 0,
             "Goal ranking uses the Goal's own score, not a child's proxy score");
+    }
+
+    private static void VerifyGoalIntrinsicAttractionUsesFinalTandemSnapshot()
+    {
+        const string needField = "need";
+        KLEPKeyDefinition need = MakeKey("key.goal-attraction.need");
+        var sensor = MakeProbe(
+            "router.goal-attraction.need",
+            0f,
+            KLEPExecutionMode.Tandem,
+            declaredOutputs: new[] { need },
+            kind: KLEPExecutableKind.Router);
+        sensor.TickAction = context =>
+        {
+            IReadOnlyList<KLEPKeyFact> facts = context.Keys.FindAll(need.Id);
+            long value = context.CycleIndex == 1 ? 10L : 0L;
+            context.Replace(
+                facts[0],
+                new KLEPKeyPayload(new[]
+                {
+                    new KeyValuePair<string, KLEPKeyValue>(needField, value)
+                }));
+            return KLEPExecutableTickStatus.Succeeded;
+        };
+
+        var observedNeeds = new List<long>();
+        var evaluator = new ProbeGoalAttractionEvaluator(
+            "policy.goal-attraction.need",
+            "v1",
+            context =>
+            {
+                IReadOnlyList<KLEPKeyFact> facts =
+                    context.KeySnapshot.FindAll(need.Id);
+                if (facts.Count != 1 ||
+                    !facts[0].Payload.TryGetInteger(needField, out long value))
+                {
+                    throw new InvalidOperationException("Need payload missing.");
+                }
+
+                observedNeeds.Add(value);
+                return new KLEPGoalAttractionEvaluation(
+                    value,
+                    "need=" + value);
+            });
+        ProbeExecutable child = MakeProbe(
+            "goal.attraction.child",
+            1000f);
+        child.DefaultStatus = KLEPExecutableTickStatus.Running;
+        var goal = new KLEPGoal(
+            new KLEPExecutableDefinition(
+                "goal.attraction.dynamic",
+                "Dynamic Need Goal",
+                KLEPExecutableKind.Goal,
+                baseAttractiveness: 1f),
+            new[]
+            {
+                new KLEPGoalLayer(
+                    KLEPGoalLayerRequirement.AllMustFire,
+                    new[] { child })
+            },
+            null,
+            evaluator);
+        ProbeExecutable competitor = MakeProbe(
+            "solo.goal-attraction.competitor",
+            5f);
+        competitor.DefaultStatus = KLEPExecutableTickStatus.Running;
+        var neuron = new KLEPNeuron("neuron.goal-attraction.dynamic");
+        neuron.InitializeKey(
+            need,
+            new KLEPKeyPayload(new[]
+            {
+                new KeyValuePair<string, KLEPKeyValue>(needField, 0L)
+            }));
+        neuron.RegisterExecutable(sensor);
+        neuron.RegisterExecutable(goal);
+        neuron.RegisterExecutable(competitor);
+
+        KLEPDecisionTrace first = neuron.TickViaAgent();
+        CandidateEvaluation firstGoal = FindCandidate(
+            first,
+            goal.StableId);
+        KLEPExecutableScoreComponent intrinsic =
+            firstGoal.ScoreEvaluation.Components[1];
+
+        Expect(observedNeeds.Count == 1 &&
+               observedNeeds[0] == 10L &&
+               first.InitialKeySnapshot.Facts[0].Payload.TryGetInteger(
+                   needField,
+                   out long initialNeed) &&
+               initialNeed == 0L,
+            "Goal attraction reads the final post-Tandem payload, not the initial snapshot");
+        Expect(first.SelectedExecutableId == goal.StableId &&
+               first.CurrentSoloExecutableId == goal.StableId &&
+               firstGoal.ScoreEvaluation.Total == 11f &&
+               firstGoal.ScoreEvaluation.Components.Count == 2 &&
+               child.TickCount == 1,
+            "intrinsic attraction selects the Running Goal without using its high-scoring child as a proxy");
+        Expect(intrinsic.Kind ==
+                   KLEPExecutableScoreComponentKind.GoalIntrinsicAttraction &&
+               intrinsic.SourceId == evaluator.StableId &&
+               intrinsic.SourceVersion == evaluator.Version &&
+               intrinsic.Value == 10f &&
+               intrinsic.Explanation == "need=10",
+            "Goal attraction trace retains evaluator identity, version, value, and explanation");
+
+        KLEPExecutableScoreEvaluation replayA =
+            goal.EvaluateScore(first.KeySnapshot);
+        KLEPExecutableScoreEvaluation replayB =
+            goal.EvaluateScore(first.KeySnapshot);
+        Expect(Serialize(replayA) == Serialize(replayB) &&
+               replayA.Components[1].SourceVersion ==
+                   replayB.Components[1].SourceVersion &&
+               replayA.Components[1].Explanation ==
+                   replayB.Components[1].Explanation,
+            "the same immutable snapshot produces the same intrinsic Goal score and provenance");
+
+        KLEPDecisionTrace second = neuron.TickViaAgent();
+        CandidateEvaluation secondGoal = FindCandidate(
+            second,
+            goal.StableId);
+        KLEPExecutableStepTrace interrupted = FindStep(
+            second,
+            goal.StableId,
+            KLEPExecutableStepKind.Cancellation);
+        Expect(observedNeeds[observedNeeds.Count - 1] == 0L &&
+               secondGoal.ScoreEvaluation.Total == 1f &&
+               second.SelectedExecutableId == competitor.StableId &&
+               second.CurrentSoloExecutableId == competitor.StableId,
+            "a changed need contribution lets a different root Solo take dominance on the next top-level Tick");
+        Expect(interrupted != null &&
+               interrupted.ExitReason == KLEPExecutableExitReason.Interrupted &&
+               child.ExitCount == 1 &&
+               child.CleanupCount == 1,
+            "strictly higher replacement unwinds the Running Goal and its child exactly once");
+    }
+
+    private static void VerifyGoalIntrinsicAttractionGuardsAndFaultTrace()
+    {
+        KLEPKeyDefinition missing = MakeKey("key.goal-attraction.missing");
+        var blockedEvaluator = new ProbeGoalAttractionEvaluator(
+            "policy.goal-attraction.blocked",
+            "1",
+            context => new KLEPGoalAttractionEvaluation(100f));
+        var blocked = new KLEPGoal(
+            new KLEPExecutableDefinition(
+                "goal.attraction.blocked",
+                "Blocked Goal",
+                KLEPExecutableKind.Goal,
+                validationLocks: new[]
+                {
+                    MakeLock(
+                        "lock.goal-attraction.blocked",
+                        new KLEPKeyPresent(missing.Id.Value))
+                }),
+            null,
+            null,
+            blockedEvaluator);
+        var blockedNeuron = new KLEPNeuron("neuron.goal-attraction.blocked");
+        blockedNeuron.RegisterExecutable(blocked);
+        KLEPDecisionTrace blockedTrace = blockedNeuron.TickViaAgent();
+        CandidateEvaluation blockedCandidate = FindCandidate(
+            blockedTrace,
+            blocked.StableId);
+        Expect(blockedEvaluator.EvaluationCount == 0 &&
+               !blockedCandidate.IsEligible &&
+               blockedCandidate.ScoreEvaluation == null,
+            "an ineligible Goal never invokes project attraction policy and remains unscored");
+
+        ExpectThrows<ArgumentException>(() => new KLEPGoal(
+            new KLEPExecutableDefinition(
+                "goal.attraction.invalid-id",
+                "Invalid Evaluator",
+                KLEPExecutableKind.Goal),
+            null,
+            null,
+            new ProbeGoalAttractionEvaluator(
+                " ",
+                "1",
+                context => new KLEPGoalAttractionEvaluation(0f))),
+            "Goal construction rejects a blank attraction evaluator identity");
+        ExpectThrows<ArgumentOutOfRangeException>(() =>
+            new KLEPGoalAttractionEvaluation(float.NaN),
+            "Goal attraction evaluation rejects non-finite contributions");
+        var negative = new KLEPGoalAttractionEvaluation(
+            -2.5f,
+            "avoid remembered harm");
+        Expect(negative.Contribution == -2.5f &&
+               negative.Explanation == "avoid remembered harm",
+            "Goal attraction accepts a finite negative signed contribution without losing its explanation");
+
+        var nullEvaluator = new ProbeGoalAttractionEvaluator(
+            "policy.goal-attraction.null",
+            "1",
+            context => null);
+        KLEPNeuron nullNeuron = MakeAttractionFaultNeuron(
+            "goal.attraction.null",
+            0f,
+            nullEvaluator);
+        Exception nullFault = Catch(() => nullNeuron.TickViaAgent());
+        Expect(nullFault is InvalidOperationException &&
+               nullNeuron.LastDecisionViaAgent().Fault != null &&
+               nullNeuron.LastDecisionViaAgent().Fault.ExecutableStableId ==
+                   "goal.attraction.null" &&
+               nullNeuron.LastDecisionViaAgent().Fault.Stage ==
+                   KLEPExecutableLifecycleStage.AttractionEvaluation,
+            "a null attraction result faults the owning Goal at the dedicated scoring stage");
+
+        var sentinel = new InvalidOperationException("attraction sentinel");
+        var faultingEvaluator = new ProbeGoalAttractionEvaluator(
+            "policy.goal-attraction.fault",
+            "1",
+            context => throw sentinel);
+        KLEPNeuron faultNeuron = MakeAttractionFaultNeuron(
+            "goal.attraction.fault",
+            0f,
+            faultingEvaluator);
+        Exception policyFault = Catch(() => faultNeuron.TickViaAgent());
+        Expect(ReferenceEquals(policyFault, sentinel) &&
+               faultNeuron.LastDecisionViaAgent().Fault != null &&
+               faultNeuron.LastDecisionViaAgent().Fault.Stage ==
+                   KLEPExecutableLifecycleStage.AttractionEvaluation,
+            "a project-policy exception is rethrown unchanged and traced as attraction evaluation");
+
+        var overflowEvaluator = new ProbeGoalAttractionEvaluator(
+            "policy.goal-attraction.overflow",
+            "1",
+            context => new KLEPGoalAttractionEvaluation(float.MaxValue));
+        KLEPNeuron overflowNeuron = MakeAttractionFaultNeuron(
+            "goal.attraction.overflow",
+            float.MaxValue,
+            overflowEvaluator);
+        Exception overflow = Catch(() => overflowNeuron.TickViaAgent());
+        Expect(overflow is InvalidOperationException &&
+               overflowNeuron.LastDecisionViaAgent().Fault != null &&
+               overflowNeuron.LastDecisionViaAgent().Fault.ExecutableStableId ==
+                   "goal.attraction.overflow" &&
+               overflowNeuron.LastDecisionViaAgent().Fault.Stage ==
+                   KLEPExecutableLifecycleStage.AttractionEvaluation,
+            "finite components that overflow the total fault without publishing a partial candidate score");
     }
 
     private static void VerifyGoalActivationEmitsOncePerRun()
@@ -1143,7 +1395,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-activation");
         neuron.RegisterExecutable(goal);
 
-        KLEPDecisionTrace entered = neuron.Tick();
+        KLEPDecisionTrace entered = neuron.TickViaAgent();
         KLEPExecutableStepTrace firstStep = FindStep(
             entered, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(firstStep != null && firstStep.State == KLEPExecutableState.Running &&
@@ -1153,7 +1405,7 @@ internal static class Program
         Expect(!entered.KeySnapshot.Contains(activation.Id),
             "Goal activation follows the Solo next-Tick output boundary");
 
-        KLEPDecisionTrace completed = neuron.Tick();
+        KLEPDecisionTrace completed = neuron.TickViaAgent();
         KLEPExecutableStepTrace secondStep = FindStep(
             completed, goal.StableId, KLEPExecutableStepKind.Solo);
         Expect(completed.KeySnapshot.Contains(activation.Id) &&
@@ -1162,6 +1414,56 @@ internal static class Program
         Expect(secondStep != null && secondStep.State == KLEPExecutableState.Succeeded &&
                secondStep.Outputs.Count == 0,
             "A Running Goal does not re-enter or emit activation again on its next layer");
+    }
+
+    private static void VerifyTandemGoalIsUnscoredAutomaticComposite()
+    {
+        var evaluator = new ProbeGoalAttractionEvaluator(
+            "policy.tandem-goal.must-not-run",
+            "1",
+            context => new KLEPGoalAttractionEvaluation(1000f));
+        var tandemGoal = new KLEPGoal(
+            new KLEPExecutableDefinition(
+                "goal.tandem.background",
+                "Background Goal",
+                KLEPExecutableKind.Goal,
+                baseAttractiveness: 1000f,
+                executionMode: KLEPExecutionMode.Tandem),
+            new[]
+            {
+                new KLEPGoalLayer(KLEPGoalLayerRequirement.NoneNeedToFire),
+                new KLEPGoalLayer(KLEPGoalLayerRequirement.NoneNeedToFire)
+            },
+            null,
+            evaluator);
+        ProbeExecutable solo = MakeProbe("action.tandem-goal.solo", 1f);
+        var neuron = new KLEPNeuron("neuron.tandem-goal");
+        neuron.RegisterExecutable(tandemGoal);
+        neuron.RegisterExecutable(solo);
+
+        KLEPDecisionTrace first = neuron.TickViaAgent();
+        KLEPExecutableStepTrace firstGoal = FindStep(
+            first,
+            tandemGoal.StableId,
+            KLEPExecutableStepKind.Tandem);
+        Expect(firstGoal != null &&
+               firstGoal.State == KLEPExecutableState.Running &&
+               first.Candidates.Count == 1 &&
+               first.Candidates[0].StableId == solo.StableId &&
+               first.SelectedExecutableId == solo.StableId,
+            "a root Tandem Goal advances automatically while only root Solos enter arbitration");
+        Expect(evaluator.EvaluationCount == 0,
+            "a root Tandem Goal receives no intrinsic-attraction evaluation");
+
+        KLEPDecisionTrace second = neuron.TickViaAgent();
+        KLEPExecutableStepTrace secondGoal = FindStep(
+            second,
+            tandemGoal.StableId,
+            KLEPExecutableStepKind.Tandem);
+        Expect(secondGoal != null &&
+               secondGoal.State == KLEPExecutableState.Succeeded &&
+               evaluator.EvaluationCount == 0,
+            "a Tandem Goal retains composite progress without ever becoming a scored candidate");
     }
 
     private static void VerifyGoalCanBeginAnotherRegistrationTenure()
@@ -1181,11 +1483,11 @@ internal static class Program
             });
         var neuron = new KLEPNeuron("neuron.goal-retenure");
         neuron.RegisterExecutable(goal);
-        neuron.Tick();
+        neuron.TickViaAgent();
         neuron.RemoveExecutable(goal.StableId);
-        neuron.Tick();
+        neuron.TickViaAgent();
         neuron.RegisterExecutable(goal);
-        KLEPDecisionTrace restarted = neuron.Tick();
+        KLEPDecisionTrace restarted = neuron.TickViaAgent();
 
         Expect(child.InitializeCount == 2,
             "Goal children initialize once for each committed Goal registration tenure");
@@ -1212,8 +1514,10 @@ internal static class Program
             });
         neuron.RegisterExecutable(goal);
 
-        ExpectThrows<InvalidOperationException>(() => neuron.Tick(),
-            "A child claimed after staged root registration is rejected at commit");
+        KLEPDecisionTrace rejected = neuron.TickViaAgent();
+        Expect(rejected.Candidates.Count == 0 &&
+               neuron.GetRootExecutableDefinitionsSnapshot().Count == 0,
+            "A child claimed after staged root registration invalidates and atomically rejects the proposed catalog");
         Expect(child.InitializeCount == 0 && child.TickCount == 0,
             "The ownership race cannot initialize or double-run the Goal child as a root");
     }
@@ -1226,7 +1530,7 @@ internal static class Program
             "goal.atomic.neuron-child", -1f);
         var originalNeuron = new KLEPNeuron("neuron.goal-atomic.original");
         originalNeuron.RegisterExecutable(neuronOwnedChild);
-        originalNeuron.Tick();
+        originalNeuron.TickViaAgent();
 
         ExpectThrows<InvalidOperationException>(() => new KLEPGoal(
             new KLEPExecutableDefinition(
@@ -1248,7 +1552,7 @@ internal static class Program
 
         var acceptingNeuron = new KLEPNeuron("neuron.goal-atomic.accepting");
         acceptingNeuron.RegisterExecutable(freeChild);
-        acceptingNeuron.Tick();
+        acceptingNeuron.TickViaAgent();
 
         Expect(freeChild.IsNeuronOwned &&
                freeChild.NeuronOwnerId == acceptingNeuron.StableId &&
@@ -1275,19 +1579,19 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.solo-output-fault");
         neuron.RegisterExecutable(faulting);
 
-        ExpectThrows<InvalidOperationException>(() => neuron.Tick(),
+        ExpectThrows<InvalidOperationException>(() => neuron.TickViaAgent(),
             "A declared Global output still faults without an injected Global store");
         Expect(faulting.ExitCount == 1 && faulting.CleanupCount == 1 &&
                faulting.ExitContexts[0].TerminalState == KLEPExecutableState.Faulted,
             "Output application failure faults and unwinds a Running Solo exactly once");
-        Expect(neuron.CurrentSoloExecutableId == null &&
-               neuron.LastTrace.Fault.Stage ==
+        Expect(neuron.AgentViaTest().CurrentSoloExecutableId == null &&
+               neuron.LastDecisionViaAgent().Fault.Stage ==
                    KLEPExecutableLifecycleStage.OutputApplication,
             "A faulted Solo output cannot leave an orphan current runtime");
 
         ProbeExecutable replacement = MakeProbe("solo.after-output-fault", 2f);
         neuron.RegisterExecutable(replacement);
-        Expect(neuron.Tick().SelectedExecutableId == replacement.StableId,
+        Expect(neuron.TickViaAgent().SelectedExecutableId == replacement.StableId,
             "A later Solo can run normally after the faulted runtime was unwound");
     }
 
@@ -1319,11 +1623,11 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.cross-scope-output", world);
         neuron.RegisterExecutable(producer);
 
-        ExpectThrows<InvalidOperationException>(() => neuron.Tick(),
+        ExpectThrows<InvalidOperationException>(() => neuron.TickViaAgent(),
             "A Local output cannot reuse a currently visible Global Key ID");
         neuron.RemoveExecutable(producer.StableId);
         world.CommitBoundary(2);
-        KLEPDecisionTrace recovered = neuron.Tick();
+        KLEPDecisionTrace recovered = neuron.TickViaAgent();
         Expect(recovered.KeySnapshot.Contains(globalDefinition.Id) &&
                CountFacts(recovered.KeySnapshot, globalDefinition.Id) == 1,
             "Rejected cross-scope output is rolled back and cannot poison later snapshots");
@@ -1378,14 +1682,14 @@ internal static class Program
         neuron.RegisterExecutable(firstWave);
         neuron.RegisterExecutable(secondWave);
 
-        ExpectThrows<InvalidOperationException>(() => neuron.Tick(),
+        ExpectThrows<InvalidOperationException>(() => neuron.TickViaAgent(),
             "A second removal already pending in another wave faults the output batch");
-        Expect(neuron.LastTrace.KeySnapshot.Contains(trigger.Id),
+        Expect(neuron.LastDecisionViaAgent().KeySnapshot.Contains(trigger.Id),
             "The fault trace retains the previously committed earlier-wave snapshot");
         neuron.RemoveExecutable(firstWave.StableId);
         neuron.RemoveExecutable(secondWave.StableId);
         world.CommitBoundary(2);
-        KLEPDecisionTrace next = neuron.Tick();
+        KLEPDecisionTrace next = neuron.TickViaAgent();
         Expect(!next.KeySnapshot.Contains(leak.Id),
             "A later operation failure rolls back every earlier operation in that wave");
         Expect(next.KeySnapshot.Contains(trigger.Id),
@@ -1419,7 +1723,7 @@ internal static class Program
         Exception observed = null;
         try
         {
-            neuron.Tick();
+            neuron.TickViaAgent();
         }
         catch (Exception fault)
         {
@@ -1432,13 +1736,227 @@ internal static class Program
                runningPeer.ExitContexts[0].Reason ==
                    KLEPExecutableExitReason.WaveAborted,
             "A Running earlier peer unwinds when its uncommitted wave aborts");
-        Expect(!neuron.LastTrace.KeySnapshot.Contains(output.Id),
+        Expect(!neuron.LastDecisionViaAgent().KeySnapshot.Contains(output.Id),
             "An aborted wave publishes none of its peer outputs");
 
         neuron.RemoveExecutable(faultingPeer.StableId);
-        KLEPDecisionTrace retried = neuron.Tick();
+        KLEPDecisionTrace retried = neuron.TickViaAgent();
         Expect(runningPeer.EnterCount == 2 && retried.KeySnapshot.Contains(output.Id),
             "The unwound peer re-enters next Tick and can reproduce its output");
+    }
+
+    private static void
+        VerifyInitializationCallbackFaultRejectsWholeRegistrationBoundary()
+    {
+        ProbeExecutable survivor = MakeProbe(
+            "solo.registration-callback-survivor",
+            1f);
+        var neuron = new KLEPNeuron(
+            "neuron.registration-callback-transaction");
+        neuron.RegisterExecutable(survivor);
+        KLEPAgent agent = neuron.AgentViaTest();
+        agent.Tick();
+        long priorRevision = neuron.CatalogRevision;
+
+        ProbeExecutable initializedFirst = MakeProbe(
+            "solo.registration-callback-a-first",
+            -1f);
+        var sentinel = new InvalidOperationException(
+            "later registration initialization fault");
+        ProbeExecutable faultingLater = MakeProbe(
+            "solo.registration-callback-z-fault",
+            -1f);
+        faultingLater.InitializeAction = context => throw sentinel;
+        neuron.RegisterExecutable(initializedFirst);
+        neuron.RegisterExecutable(faultingLater);
+
+        Exception observed = Catch(() => agent.Tick());
+        Expect(ReferenceEquals(observed, sentinel),
+            "A later initialization callback rethrows its original fault");
+        KLEPStructuralMapDecisionTrace rollbackStructural =
+            agent.LastTrace.Decision.StructuralMap;
+        IReadOnlyList<KLEPExecutableDefinition> roots =
+            neuron.GetRootExecutableDefinitionsSnapshot();
+        Expect(roots.Count == 1 &&
+               roots[0].StableId == survivor.StableId &&
+               initializedFirst.InitializeCount == 1 &&
+               faultingLater.InitializeCount == 1,
+            "A later callback fault rejects every registration initialized in that boundary");
+        Expect(!initializedFirst.IsNeuronOwned &&
+               !faultingLater.IsNeuronOwned,
+            "Rejected callback-fault registrations retain no Neuron ownership");
+
+        KLEPExecutableStructuralMap recoveredMap = agent.ExecutableMap;
+        Expect(neuron.CatalogRevision == priorRevision + 1 &&
+               recoveredMap != null &&
+               recoveredMap.IsValid &&
+               recoveredMap.Snapshot.ProposedCatalogRevision ==
+                   neuron.CatalogRevision.ToString(CultureInfo.InvariantCulture) &&
+               recoveredMap.Snapshot.Roots.Count == 1 &&
+               recoveredMap.Snapshot.Roots[0].StableExecutableId ==
+                   survivor.StableId,
+            "Callback-fault rollback replaces the proposed map with the exact active catalog at its revision");
+        Expect(rollbackStructural.Trigger ==
+                   KLEPStructuralMapTrigger.RegistrationRollbackRecovery &&
+               rollbackStructural.Disposition ==
+                   KLEPStructuralMapDisposition.Rejected &&
+               rollbackStructural.ObserverStableId ==
+                   KLEPBaselineStructuralObserver.Instance.StableId &&
+               rollbackStructural.ObserverVersion ==
+                   KLEPBaselineStructuralObserver.Instance.Version &&
+               rollbackStructural.RejectedCatalogProposal &&
+               rollbackStructural.Fault == null &&
+               ReferenceEquals(
+                   rollbackStructural.AttemptedAssessment,
+                   agent.LastExecutableMapAttempt) &&
+               ReferenceEquals(
+                   rollbackStructural.ActiveAssessment,
+                   recoveredMap) &&
+               rollbackStructural.ProposedRevision ==
+                   neuron.CatalogRevision.ToString(
+                       CultureInfo.InvariantCulture) &&
+               rollbackStructural.ActiveRevision ==
+                   neuron.CatalogRevision.ToString(
+                       CultureInfo.InvariantCulture) &&
+               !rollbackStructural.ProposedFingerprint.Equals(
+                   rollbackStructural.ActiveFingerprint),
+            "Callback-fault rollback freezes the rejected registration map and recovered active map in one structural trace");
+        Expect(agent.LastExecutableMapAttempt.Snapshot.Roots.Count == 3 &&
+               !agent.LastExecutableMapAttempt.Fingerprint.Equals(
+                   recoveredMap.Fingerprint),
+            "The rejected proposal remains inspectable without becoming the accepted map");
+        KLEPStructuralMapFingerprint rejectedProposalFingerprint =
+            agent.LastExecutableMapAttempt.Fingerprint;
+        KLEPStructuralMapFingerprint recoveredFingerprint =
+            recoveredMap.Fingerprint;
+        IReadOnlyList<KLEPExecutableRuntimeSnapshot> runtimes =
+            agent.GetRootExecutableRuntimeSnapshot();
+        Expect(runtimes.Count == 1 &&
+               runtimes[0].ExecutableStableId == survivor.StableId,
+            "Callback-fault rollback leaves no partially committed registration runtime");
+
+        KLEPAgentTickTrace following = agent.Tick();
+        Expect(initializedFirst.InitializeCount == 1 &&
+               faultingLater.InitializeCount == 1 &&
+               following.Decision.SelectedExecutableId == survivor.StableId &&
+               agent.ExecutableMap.Snapshot.ProposedCatalogRevision ==
+                   neuron.CatalogRevision.ToString(CultureInfo.InvariantCulture) &&
+               agent.ExecutableMap.Fingerprint.Equals(recoveredFingerprint) &&
+               !agent.ExecutableMap.Fingerprint.Equals(
+                   rejectedProposalFingerprint),
+            "Rejected callback-fault registrations do not initialize again or become reusable as the prior proposed map");
+    }
+
+    private static void
+        VerifyInitializationOutputFaultRejectsWholeRegistrationBoundary()
+    {
+        ProbeExecutable survivor = MakeProbe(
+            "solo.registration-output-survivor",
+            1f);
+        var neuron = new KLEPNeuron(
+            "neuron.registration-output-transaction");
+        neuron.RegisterExecutable(survivor);
+        KLEPAgent agent = neuron.AgentViaTest();
+        agent.Tick();
+        long priorRevision = neuron.CatalogRevision;
+
+        KLEPKeyDefinition validOutput = MakeKey(
+            "key.registration-output-valid");
+        ProbeExecutable initializedFirst = MakeProbe(
+            "solo.registration-output-a-first",
+            -1f,
+            declaredOutputs: new[] { validOutput });
+        initializedFirst.InitializeAction = context =>
+            context.Add(validOutput);
+        var invalidGlobalOutput = new KLEPKeyDefinition(
+            new KLEPKeyId("key.registration-output-invalid-global"),
+            "Invalid Global Initialization Output",
+            scope: KLEPKeyScope.Global,
+            defaultLifetime: KLEPKeyLifetime.Persistent);
+        ProbeExecutable invalidLater = MakeProbe(
+            "solo.registration-output-z-invalid",
+            -1f,
+            declaredOutputs: new[] { invalidGlobalOutput });
+        invalidLater.InitializeAction = context =>
+            context.Add(invalidGlobalOutput);
+        neuron.RegisterExecutable(initializedFirst);
+        neuron.RegisterExecutable(invalidLater);
+
+        ExpectThrows<InvalidOperationException>(() => agent.Tick(),
+            "A later invalid initialization output rejects the complete registration batch");
+        KLEPStructuralMapDecisionTrace rollbackStructural =
+            agent.LastTrace.Decision.StructuralMap;
+        IReadOnlyList<KLEPExecutableDefinition> roots =
+            neuron.GetRootExecutableDefinitionsSnapshot();
+        Expect(roots.Count == 1 &&
+               roots[0].StableId == survivor.StableId &&
+               initializedFirst.InitializeCount == 1 &&
+               invalidLater.InitializeCount == 1,
+            "Invalid later initialization output removes every registration from that boundary");
+        Expect(!initializedFirst.IsNeuronOwned &&
+               !invalidLater.IsNeuronOwned,
+            "Output-fault rejection releases every new registration's ownership");
+
+        KLEPExecutableStructuralMap recoveredMap = agent.ExecutableMap;
+        Expect(neuron.CatalogRevision == priorRevision + 1 &&
+               recoveredMap != null &&
+               recoveredMap.IsValid &&
+               recoveredMap.Snapshot.ProposedCatalogRevision ==
+                   neuron.CatalogRevision.ToString(CultureInfo.InvariantCulture) &&
+               recoveredMap.Snapshot.Roots.Count == 1 &&
+               recoveredMap.Snapshot.Roots[0].StableExecutableId ==
+                   survivor.StableId,
+            "Output-fault rollback keeps CatalogRevision and accepted map aligned with the active roots");
+        Expect(rollbackStructural.Trigger ==
+                   KLEPStructuralMapTrigger.RegistrationRollbackRecovery &&
+               rollbackStructural.Disposition ==
+                   KLEPStructuralMapDisposition.Rejected &&
+               rollbackStructural.ObserverStableId ==
+                   KLEPBaselineStructuralObserver.Instance.StableId &&
+               rollbackStructural.ObserverVersion ==
+                   KLEPBaselineStructuralObserver.Instance.Version &&
+               rollbackStructural.RejectedCatalogProposal &&
+               rollbackStructural.Fault == null &&
+               ReferenceEquals(
+                   rollbackStructural.AttemptedAssessment,
+                   agent.LastExecutableMapAttempt) &&
+               ReferenceEquals(
+                   rollbackStructural.ActiveAssessment,
+                   recoveredMap) &&
+               rollbackStructural.ProposedRevision ==
+                   neuron.CatalogRevision.ToString(
+                       CultureInfo.InvariantCulture) &&
+               rollbackStructural.ActiveRevision ==
+                   neuron.CatalogRevision.ToString(
+                       CultureInfo.InvariantCulture) &&
+               !rollbackStructural.ProposedFingerprint.Equals(
+                   rollbackStructural.ActiveFingerprint),
+            "Output-fault rollback freezes the rejected registration map and recovered active map in one structural trace");
+        Expect(agent.LastExecutableMapAttempt.Snapshot.Roots.Count == 3 &&
+               !agent.LastExecutableMapAttempt.Fingerprint.Equals(
+                   recoveredMap.Fingerprint),
+            "The rejected output-fault proposal remains inspectable without becoming the accepted map");
+        KLEPStructuralMapFingerprint rejectedProposalFingerprint =
+            agent.LastExecutableMapAttempt.Fingerprint;
+        KLEPStructuralMapFingerprint recoveredFingerprint =
+            recoveredMap.Fingerprint;
+        IReadOnlyList<KLEPExecutableRuntimeSnapshot> runtimes =
+            agent.GetRootExecutableRuntimeSnapshot();
+        Expect(runtimes.Count == 1 &&
+               runtimes[0].ExecutableStableId == survivor.StableId,
+            "Output-fault rollback leaves no earlier or later registration runtime behind");
+
+        KLEPAgentTickTrace following = agent.Tick();
+        Expect(!following.Decision.KeySnapshot.Contains(validOutput.Id) &&
+               initializedFirst.InitializeCount == 1 &&
+               invalidLater.InitializeCount == 1 &&
+               following.Decision.SelectedExecutableId == survivor.StableId &&
+               agent.ExecutableMap.Snapshot.ProposedCatalogRevision ==
+                   neuron.CatalogRevision.ToString(CultureInfo.InvariantCulture) &&
+               agent.ExecutableMap.Fingerprint.Equals(recoveredFingerprint) &&
+               !agent.ExecutableMap.Fingerprint.Equals(
+                   rejectedProposalFingerprint),
+            "Rejected initialization output neither leaks, retries, nor becomes reusable as the prior proposed map");
     }
 
     private static void VerifyInitializationOutputFailureRejectsRegistration()
@@ -1456,9 +1974,9 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.bad-initialization-output");
         neuron.RegisterExecutable(probe);
 
-        ExpectThrows<InvalidOperationException>(() => neuron.Tick(),
+        ExpectThrows<InvalidOperationException>(() => neuron.TickViaAgent(),
             "Invalid initialization output rejects the registration boundary");
-        KLEPDecisionTrace following = neuron.Tick();
+        KLEPDecisionTrace following = neuron.TickViaAgent();
         Expect(probe.InitializeCount == 1 && following.Candidates.Count == 0 &&
                following.IsPatient,
             "A rejected registration cannot continue without its one-time initialization output");
@@ -1487,7 +2005,7 @@ internal static class Program
         Exception observed = null;
         try
         {
-            neuron.Tick();
+            neuron.TickViaAgent();
         }
         catch (Exception fault)
         {
@@ -1496,8 +2014,8 @@ internal static class Program
 
         Expect(ReferenceEquals(observed, sentinel),
             "A Goal child fault rethrows the original child exception");
-        Expect(neuron.LastTrace.Fault.ExecutableStableId == child.StableId &&
-               neuron.LastTrace.Fault.Stage == KLEPExecutableLifecycleStage.Tick,
+        Expect(neuron.LastDecisionViaAgent().Fault.ExecutableStableId == child.StableId &&
+               neuron.LastDecisionViaAgent().Fault.Stage == KLEPExecutableLifecycleStage.Tick,
             "Goal fault trace preserves the actual child identity and stage");
         Expect(child.ExitCount == 1 && child.CleanupCount == 1,
             "The faulting Goal child unwinds exactly once");
@@ -1529,7 +2047,7 @@ internal static class Program
         var neuron = new KLEPNeuron("neuron.goal-cancellation-fault");
         neuron.RegisterExecutable(goal);
 
-        neuron.Tick();
+        neuron.TickViaAgent();
         Expect(faultingChild.TickCount == 1 && laterChild.TickCount == 1,
             "Both Goal children are Running before cancellation");
         neuron.RemoveExecutable(goal.StableId);
@@ -1537,7 +2055,7 @@ internal static class Program
         Exception observed = null;
         try
         {
-            neuron.Tick();
+            neuron.TickViaAgent();
         }
         catch (Exception fault)
         {
@@ -1551,9 +2069,9 @@ internal static class Program
             "The faulting child still attempts Exit and Cleanup exactly once");
         Expect(laterChild.ExitCount == 1 && laterChild.CleanupCount == 1,
             "A child fault cannot prevent later Running siblings from cleaning up");
-        Expect(neuron.LastTrace.Fault.ExecutableStableId ==
+        Expect(neuron.LastDecisionViaAgent().Fault.ExecutableStableId ==
                    faultingChild.StableId &&
-               neuron.LastTrace.Fault.Stage ==
+               neuron.LastDecisionViaAgent().Fault.Stage ==
                    KLEPExecutableLifecycleStage.Exit,
             "Goal cancellation fault trace preserves the failing child and stage");
     }
@@ -1595,7 +2113,7 @@ internal static class Program
             neuron.RegisterExecutable(b);
         }
 
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
         return Serialize(trace);
     }
 
@@ -1607,7 +2125,7 @@ internal static class Program
             neuron.InitializeKey(MakeKey(keyId));
         }
 
-        return neuron.Tick().KeySnapshot;
+        return neuron.TickViaAgent().KeySnapshot;
     }
 
     private static KLEPKeyDefinition MakeKey(string keyId)
@@ -1653,6 +2171,25 @@ internal static class Program
             declaredOutputs));
     }
 
+    private static KLEPNeuron MakeAttractionFaultNeuron(
+        string goalId,
+        float baseAttractiveness,
+        IKLEPGoalAttractionEvaluator evaluator)
+    {
+        var goal = new KLEPGoal(
+            new KLEPExecutableDefinition(
+                goalId,
+                goalId,
+                KLEPExecutableKind.Goal,
+                baseAttractiveness: baseAttractiveness),
+            null,
+            null,
+            evaluator);
+        var neuron = new KLEPNeuron("neuron." + goalId);
+        neuron.RegisterExecutable(goal);
+        return neuron;
+    }
+
     private static KLEPLock MakeLock(
         string lockId,
         KLEPLockExpression expression,
@@ -1676,6 +2213,21 @@ internal static class Program
         }
 
         return null;
+    }
+
+    private static CandidateEvaluation FindCandidate(
+        KLEPDecisionTrace trace,
+        string executableStableId)
+    {
+        foreach (CandidateEvaluation candidate in trace.Candidates)
+        {
+            if (candidate.StableId == executableStableId)
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("Candidate was not traced.");
     }
 
     private static int CountFacts(
@@ -1827,6 +2379,52 @@ internal static class Program
         }
 
         throw new InvalidOperationException($"Assertion failed: {message}");
+    }
+
+    private static Exception Catch(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("Expected an exception, but none was thrown.");
+    }
+
+    private sealed class ProbeGoalAttractionEvaluator :
+        IKLEPGoalAttractionEvaluator
+    {
+        private readonly Func<KLEPGoalAttractionContext,
+            KLEPGoalAttractionEvaluation> evaluate;
+
+        public ProbeGoalAttractionEvaluator(
+            string stableId,
+            string version,
+            Func<KLEPGoalAttractionContext,
+                KLEPGoalAttractionEvaluation> evaluate)
+        {
+            StableId = stableId;
+            Version = version;
+            this.evaluate = evaluate ??
+                throw new ArgumentNullException(nameof(evaluate));
+        }
+
+        public string StableId { get; }
+        public string Version { get; }
+        public int EvaluationCount { get; private set; }
+        public KLEPGoalAttractionContext LastContext { get; private set; }
+
+        public KLEPGoalAttractionEvaluation Evaluate(
+            KLEPGoalAttractionContext context)
+        {
+            EvaluationCount++;
+            LastContext = context;
+            return evaluate(context);
+        }
     }
 
     private sealed class TestExecutable : KLEPExecutableBase

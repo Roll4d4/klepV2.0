@@ -11,7 +11,8 @@ namespace Roll4d4.Klep.Core
 
     /// <summary>
     /// One immutable request produced by an Executable. It describes intent;
-    /// only the owning Neuron may apply it to a KeyStore at an approved barrier.
+    /// only the owning Agent may apply it through the passive Neuron at an
+    /// approved barrier.
     /// </summary>
     public sealed class KLEPExecutableOutput
     {

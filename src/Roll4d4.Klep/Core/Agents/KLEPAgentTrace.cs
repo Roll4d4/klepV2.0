@@ -137,7 +137,7 @@ namespace Roll4d4.Klep.Core
 
     /// <summary>
     /// One immutable Observer polish prepared from a completed guidance request.
-    /// The Agent offers it to the following Neuron Tick exactly once.
+    /// The Agent offers it to the following Agent Tick exactly once.
     /// </summary>
     public sealed class KLEPGuidanceAdvice
     {
@@ -335,7 +335,7 @@ namespace Roll4d4.Klep.Core
             KLEPGuidanceAdviceApplicationKind kind,
             KLEPKeyEnvironmentSignature observedEnvironment,
             KLEPGuidanceEvidenceFingerprint observedEvidenceFingerprint,
-            float? authoredScore,
+            float? preObserverScore,
             float? effectiveScore)
         {
             Advice = advice ?? throw new ArgumentNullException(nameof(advice));
@@ -344,7 +344,7 @@ namespace Roll4d4.Klep.Core
                 throw new ArgumentNullException(nameof(observedEnvironment));
             ObservedEvidenceFingerprint = observedEvidenceFingerprint ??
                 throw new ArgumentNullException(nameof(observedEvidenceFingerprint));
-            AuthoredScore = authoredScore;
+            PreObserverScore = preObserverScore;
             EffectiveScore = effectiveScore;
         }
 
@@ -352,7 +352,11 @@ namespace Roll4d4.Klep.Core
         public KLEPGuidanceAdviceApplicationKind Kind { get; }
         public KLEPKeyEnvironmentSignature ObservedEnvironment { get; }
         public KLEPGuidanceEvidenceFingerprint ObservedEvidenceFingerprint { get; }
-        public float? AuthoredScore { get; }
+        public float? PreObserverScore { get; }
+        // Retained for source compatibility. A Goal's pre-Observer score may
+        // now include a runtime intrinsic-attraction component, so the more
+        // precise name is PreObserverScore.
+        public float? AuthoredScore => PreObserverScore;
         public float? EffectiveScore { get; }
         public bool WasApplied => Kind == KLEPGuidanceAdviceApplicationKind.Applied;
     }
@@ -447,6 +451,145 @@ namespace Roll4d4.Klep.Core
 
             return new ReadOnlyCollection<KLEPAgentExperience>(copy);
         }
+    }
+
+    public enum KLEPStructuralMapTrigger
+    {
+        None,
+        InitialCatalog,
+        RevisionChanged,
+        ExplicitRemap,
+        UnchangedReuse,
+        RegistrationRollbackRecovery
+    }
+
+    public enum KLEPStructuralMapDisposition
+    {
+        NotReached,
+        Accepted,
+        Reused,
+        Rejected,
+        Faulted
+    }
+
+    /// <summary>
+    /// Frozen fault evidence for the structural-Observer boundary. This is
+    /// deliberately separate from Executable lifecycle faults because catalog
+    /// assessment neither selects nor advances an Executable.
+    /// </summary>
+    public sealed class KLEPStructuralMapFaultTrace
+    {
+        internal KLEPStructuralMapFaultTrace(Exception exception)
+        {
+            if (exception == null)
+            {
+                throw new ArgumentNullException(nameof(exception));
+            }
+
+            ExceptionType = exception.GetType().FullName ??
+                exception.GetType().Name;
+            Message = exception.Message ?? string.Empty;
+        }
+
+        public string ExceptionType { get; }
+        public string Message { get; }
+    }
+
+    /// <summary>
+    /// One immutable account of the structural assessment used by a decision
+    /// Tick. The requested snapshot, attempted assessment, and retained active
+    /// assessment are frozen independently so a later remap cannot rewrite
+    /// historical evidence.
+    /// </summary>
+    public sealed class KLEPStructuralMapDecisionTrace
+    {
+        internal static readonly KLEPStructuralMapDecisionTrace Empty =
+            new KLEPStructuralMapDecisionTrace(
+                string.Empty,
+                string.Empty,
+                KLEPStructuralMapTrigger.None,
+                KLEPStructuralMapDisposition.NotReached,
+                null,
+                null,
+                null,
+                false,
+                null);
+
+        internal KLEPStructuralMapDecisionTrace(
+            string observerStableId,
+            string observerVersion,
+            KLEPStructuralMapTrigger trigger,
+            KLEPStructuralMapDisposition disposition,
+            KLEPExecutableCatalogSnapshot requestedCatalog,
+            KLEPExecutableStructuralMap attemptedAssessment,
+            KLEPExecutableStructuralMap activeAssessment,
+            bool rejectedCatalogProposal,
+            KLEPStructuralMapFaultTrace fault)
+        {
+            ObserverStableId = observerStableId ?? string.Empty;
+            ObserverVersion = observerVersion ?? string.Empty;
+            Trigger = trigger;
+            Disposition = disposition;
+            RequestedCatalog = requestedCatalog;
+            AttemptedAssessment = attemptedAssessment;
+            ActiveAssessment = activeAssessment;
+            RejectedCatalogProposal = rejectedCatalogProposal;
+            Fault = fault;
+
+            if (activeAssessment != null && !activeAssessment.IsValid)
+            {
+                throw new ArgumentException(
+                    "A retained active structural assessment must be valid.",
+                    nameof(activeAssessment));
+            }
+
+            if (disposition == KLEPStructuralMapDisposition.Faulted)
+            {
+                if (fault == null)
+                {
+                    throw new ArgumentException(
+                        "A faulted structural-map trace requires fault evidence.",
+                        nameof(fault));
+                }
+            }
+            else if (fault != null)
+            {
+                throw new ArgumentException(
+                    "Only a faulted structural-map trace may retain a fault.",
+                    nameof(fault));
+            }
+
+            if (rejectedCatalogProposal &&
+                disposition != KLEPStructuralMapDisposition.Rejected)
+            {
+                throw new ArgumentException(
+                    "A rejected catalog proposal requires a rejected disposition.",
+                    nameof(rejectedCatalogProposal));
+            }
+        }
+
+        public string ObserverStableId { get; }
+        public string ObserverVersion { get; }
+        public KLEPStructuralMapTrigger Trigger { get; }
+        public KLEPStructuralMapDisposition Disposition { get; }
+        public KLEPExecutableCatalogSnapshot RequestedCatalog { get; }
+        public KLEPExecutableStructuralMap AttemptedAssessment { get; }
+        public KLEPExecutableStructuralMap ActiveAssessment { get; }
+        public bool RejectedCatalogProposal { get; }
+        public KLEPStructuralMapFaultTrace Fault { get; }
+        public bool DidObserve =>
+            Disposition != KLEPStructuralMapDisposition.NotReached &&
+            Disposition != KLEPStructuralMapDisposition.Reused;
+        public bool DidReuse =>
+            Disposition == KLEPStructuralMapDisposition.Reused;
+        public string ProposedRevision =>
+            RequestedCatalog?.ProposedCatalogRevision ?? string.Empty;
+        public KLEPStructuralMapFingerprint ProposedFingerprint =>
+            RequestedCatalog?.Fingerprint;
+        public string ActiveRevision =>
+            ActiveAssessment?.Snapshot.ProposedCatalogRevision ?? string.Empty;
+        public KLEPStructuralMapFingerprint ActiveFingerprint =>
+            ActiveAssessment?.Fingerprint;
     }
 
     /// <summary>

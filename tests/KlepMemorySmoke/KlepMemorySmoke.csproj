@@ -5,6 +5,8 @@
     <DefineConstants>$(DefineConstants);KLEP_MEMORY_RUNTIME</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../KLEPAgentTestDriver.cs"
+             Link="Tests/KLEPAgentTestDriver.cs" />
     <ProjectReference Include="../../src/Roll4d4.Klep/Roll4d4.Klep.csproj" />
   </ItemGroup>
 </Project>

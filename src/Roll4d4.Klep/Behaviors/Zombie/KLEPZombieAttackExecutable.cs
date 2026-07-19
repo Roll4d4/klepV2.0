@@ -1,3 +1,4 @@
+using System;
 using Roll4d4.Klep.Core;
 
 namespace Roll4d4.Klep.Behaviors
@@ -24,6 +25,14 @@ namespace Roll4d4.Klep.Behaviors
                 attackTargetDefinition,
                 nameof(attackTargetDefinition),
                 "AttackTarget");
+            if (definition.DeclaredOutputs.Count != 0)
+            {
+                throw new ArgumentException(
+                    "A zombie attack behavior applies a host effect and cannot " +
+                    "declare successful-completion Key outputs.",
+                    nameof(definition));
+            }
+
             this.attackTargetDefinition = attackTargetDefinition;
         }
 

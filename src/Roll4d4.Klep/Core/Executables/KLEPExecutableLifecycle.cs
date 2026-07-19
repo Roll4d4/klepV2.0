@@ -42,7 +42,10 @@ namespace Roll4d4.Klep.Core
         Tick,
         Exit,
         Cleanup,
-        OutputApplication
+        OutputApplication,
+        AttractionEvaluation,
+        DeclaredOutputValidation,
+        ProjectedSatisfactionEvaluation
     }
 
     // Goal runners use this internal envelope to preserve the actual child
@@ -409,13 +412,16 @@ namespace Roll4d4.Klep.Core
     }
 
     /// <summary>
-    /// Centralizes lifecycle state so a Neuron or Goal-owned child runner can
+    /// Centralizes lifecycle state so the Agent's root or Goal-child runner can
     /// enforce exact-once callback ordering. This type is intentionally
     /// internal; behavior subclasses cannot drive their own lifecycle.
     /// </summary>
     internal sealed class KLEPExecutableRuntime
     {
         private readonly KLEPExecutableBase executable;
+        private readonly KLEPGoalRuntime goalRuntime;
+        private readonly HashSet<KLEPKeyId> emittedOutputIds =
+            new HashSet<KLEPKeyId>();
         private bool exitAttempted;
         private bool cleanupAttempted;
         private long terminalCycleIndex = -1;
@@ -423,6 +429,10 @@ namespace Roll4d4.Klep.Core
         internal KLEPExecutableRuntime(KLEPExecutableBase executable)
         {
             this.executable = executable ?? throw new ArgumentNullException(nameof(executable));
+            if (executable is KLEPGoal goal)
+            {
+                goalRuntime = new KLEPGoalRuntime(goal);
+            }
         }
 
         internal KLEPExecutableBase Executable => executable;
@@ -450,9 +460,7 @@ namespace Roll4d4.Klep.Core
                     ? null
                     : fault.GetType().FullName ?? fault.GetType().Name,
                 fault == null ? null : fault.Message,
-                executable is KLEPGoal goal
-                    ? goal.CaptureRuntimeSnapshot()
-                    : null);
+                goalRuntime == null ? null : goalRuntime.CaptureSnapshot());
         }
 
         internal KLEPExecutionResult Initialize(
@@ -474,7 +482,15 @@ namespace Roll4d4.Klep.Core
 
             try
             {
-                executable.DispatchInitialize(context);
+                if (goalRuntime == null)
+                {
+                    executable.DispatchInitialize(context);
+                }
+                else
+                {
+                    goalRuntime.Initialize(context);
+                }
+
                 IReadOnlyList<KLEPExecutableOutput> outputs = context.Complete();
                 State = KLEPExecutableState.Idle;
                 LastResult = CreateResult(
@@ -554,6 +570,7 @@ namespace Roll4d4.Klep.Core
                 LastFault = null;
                 LastFaultStage = null;
                 LastFaultExecutableId = null;
+                emittedOutputIds.Clear();
                 State = KLEPExecutableState.Running;
             }
 
@@ -568,11 +585,20 @@ namespace Roll4d4.Klep.Core
             {
                 if (entering)
                 {
-                    executable.DispatchEnter(context);
+                    if (goalRuntime == null)
+                    {
+                        executable.DispatchEnter(context);
+                    }
+                    else
+                    {
+                        goalRuntime.Enter(context);
+                    }
                 }
 
                 activeStage = KLEPExecutableLifecycleStage.Tick;
-                tickStatus = executable.DispatchTick(context);
+                tickStatus = goalRuntime == null
+                    ? executable.DispatchTick(context)
+                    : goalRuntime.Tick(context);
                 if (!Enum.IsDefined(typeof(KLEPExecutableTickStatus), tickStatus))
                 {
                     throw new InvalidOperationException(
@@ -599,6 +625,7 @@ namespace Roll4d4.Klep.Core
             }
 
             IReadOnlyList<KLEPExecutableOutput> outputs = context.Complete();
+            RememberEmittedOutputIds(outputs);
             if (tickStatus == KLEPExecutableTickStatus.Running)
             {
                 LastResult = CreateResult(
@@ -619,6 +646,34 @@ namespace Roll4d4.Klep.Core
                     ? KLEPExecutableExitReason.Succeeded
                     : KLEPExecutableExitReason.Failed;
 
+            if (tickStatus == KLEPExecutableTickStatus.Succeeded)
+            {
+                IReadOnlyList<KLEPKeyDefinition> declared =
+                    executable.Definition.DeclaredOutputs;
+                var missing = new List<string>();
+                for (int index = 0; index < declared.Count; index++)
+                {
+                    if (!emittedOutputIds.Contains(declared[index].Id))
+                    {
+                        missing.Add(declared[index].Id.Value);
+                    }
+                }
+
+                if (missing.Count > 0)
+                {
+                    var fault = new InvalidOperationException(
+                        $"Executable '{executable.StableId}' attempted to " +
+                        "succeed without emitting every declared output in " +
+                        $"this run. Missing: [{string.Join(", ", missing)}].");
+                    return FaultRun(
+                        keys,
+                        waveIndex,
+                        fault,
+                        KLEPExecutableLifecycleStage.DeclaredOutputValidation,
+                        executable.StableId);
+                }
+            }
+
             // A failed run cannot publish completion output. This keeps a
             // failure observable without letting it change the next decision.
             if (tickStatus == KLEPExecutableTickStatus.Failed)
@@ -627,6 +682,20 @@ namespace Roll4d4.Klep.Core
             }
 
             return FinishRun(keys, waveIndex, terminalState, reason, outputs);
+        }
+
+        private void RememberEmittedOutputIds(
+            IReadOnlyList<KLEPExecutableOutput> outputs)
+        {
+            for (int index = 0; index < outputs.Count; index++)
+            {
+                KLEPExecutableOutput output = outputs[index];
+                if (output.Kind == KLEPExecutableOutputKind.Add ||
+                    output.Kind == KLEPExecutableOutputKind.Replace)
+                {
+                    emittedOutputIds.Add(output.KeyId);
+                }
+            }
         }
 
         internal bool TryCancel(
@@ -812,7 +881,14 @@ namespace Roll4d4.Klep.Core
                 exitAttempted = true;
                 try
                 {
-                    executable.DispatchExit(context);
+                    if (goalRuntime == null)
+                    {
+                        executable.DispatchExit(context);
+                    }
+                    else
+                    {
+                        goalRuntime.Exit(context);
+                    }
                 }
                 catch (Exception fault)
                 {

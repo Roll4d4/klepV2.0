@@ -5,12 +5,17 @@ using System.Collections.ObjectModel;
 namespace Roll4d4.Klep.Core
 {
     /// <summary>
-    /// Pure confidence-learning facade over one Neuron. The Neuron remains the
-    /// sole scheduler and decision authority; the Agent observes its trace.
+    /// One decision owner over a passive Neuron. The Agent owns arbitration,
+    /// lifecycle progress, confidence learning, and optional Observer use.
     /// </summary>
     public sealed class KLEPAgent
     {
         private static readonly StringComparer IdComparer = StringComparer.Ordinal;
+        private readonly KLEPAgentDecisionRuntime decisionRuntime;
+        private readonly IKLEPExecutableStructuralObserver structuralObserver;
+        private readonly IKLEPCandidateStateProjectionObserver
+            candidateStateProjectionObserver;
+        private readonly KLEPProjectedSatisfactionPolicy satisfactionPolicy;
 
         private readonly Dictionary<KLEPKeyEnvironmentSignature, StateRecord> states =
             new Dictionary<KLEPKeyEnvironmentSignature, StateRecord>();
@@ -46,14 +51,25 @@ namespace Roll4d4.Klep.Core
             KLEPNeuron neuron,
             KLEPAgentConfiguration configuration,
             IKLEPGuidanceObserver guidanceObserver)
+            : this(
+                neuron,
+                configuration,
+                guidanceObserver,
+                guidanceObserver as IKLEPExecutableStructuralObserver,
+                null)
+        {
+        }
+
+        public KLEPAgent(
+            KLEPNeuron neuron,
+            KLEPAgentConfiguration configuration,
+            IKLEPGuidanceObserver guidanceObserver,
+            IKLEPExecutableStructuralObserver structuralObserver,
+            KLEPProjectedSatisfactionPolicy satisfactionPolicy,
+            IKLEPCandidateStateProjectionObserver
+                candidateStateProjectionObserver = null)
         {
             Neuron = neuron ?? throw new ArgumentNullException(nameof(neuron));
-            if (Neuron.CurrentSoloExecutableId != null)
-            {
-                throw new InvalidOperationException(
-                    "A KLEPAgent cannot attach after a Solo run has already started.");
-            }
-
             Configuration = configuration ?? KLEPAgentConfiguration.Default;
             if (guidanceObserver != null)
             {
@@ -66,16 +82,56 @@ namespace Roll4d4.Klep.Core
             }
 
             GuidanceObserver = guidanceObserver;
+            this.structuralObserver = structuralObserver ??
+                KLEPBaselineStructuralObserver.Instance;
+            this.candidateStateProjectionObserver =
+                candidateStateProjectionObserver ??
+                structuralObserver as IKLEPCandidateStateProjectionObserver ??
+                guidanceObserver as IKLEPCandidateStateProjectionObserver ??
+                KLEPBaselineCandidateStateProjectionObserver.Instance;
+            this.satisfactionPolicy = satisfactionPolicy;
+            ValidateStableId(
+                this.structuralObserver.StableId,
+                nameof(structuralObserver));
+            ValidateStableId(
+                this.structuralObserver.Version,
+                nameof(structuralObserver));
+            ValidateStableId(
+                this.candidateStateProjectionObserver.StableId,
+                nameof(candidateStateProjectionObserver));
+            ValidateStableId(
+                this.candidateStateProjectionObserver.Version,
+                nameof(candidateStateProjectionObserver));
+            Neuron.ClaimDecisionOwner(this);
+            decisionRuntime = new KLEPAgentDecisionRuntime(Neuron);
             lastObservedNeuronCycle = Neuron.CycleIndex;
         }
 
         public KLEPNeuron Neuron { get; }
         public KLEPAgentConfiguration Configuration { get; }
         public IKLEPGuidanceObserver GuidanceObserver { get; }
+        public IKLEPExecutableStructuralObserver StructuralObserver =>
+            structuralObserver;
+        public IKLEPCandidateStateProjectionObserver
+            CandidateStateProjectionObserver =>
+                candidateStateProjectionObserver;
+        public KLEPProjectedSatisfactionPolicy SatisfactionPolicy =>
+            satisfactionPolicy;
+        public KLEPExecutableStructuralMap ExecutableMap =>
+            decisionRuntime.AcceptedStructuralMap;
+        public KLEPExecutableStructuralMap LastExecutableMapAttempt =>
+            decisionRuntime.LastStructuralMapAttempt;
         public KLEPGuidanceAdvice PendingGuidanceAdvice => pendingGuidanceAdvice;
         public KLEPAgentTickTrace LastTrace { get; private set; } =
             KLEPAgentTickTrace.Empty;
-        public string CurrentSoloExecutableId => Neuron.CurrentSoloExecutableId;
+        public string CurrentSoloExecutableId =>
+            decisionRuntime.CurrentSoloExecutableId;
+
+        public IReadOnlyList<KLEPExecutableRuntimeSnapshot>
+            GetRootExecutableRuntimeSnapshot()
+        {
+            return decisionRuntime.GetRootExecutableRuntimeSnapshot();
+        }
 
         public KLEPAgentTickTrace Tick()
         {
@@ -97,6 +153,7 @@ namespace Roll4d4.Klep.Core
                     "The Agent Tick ordinal is exhausted.");
             }
 
+            Neuron.EnterAgentDecisionBoundary(this);
             isTicking = true;
             try
             {
@@ -106,9 +163,12 @@ namespace Roll4d4.Klep.Core
                 KLEPDecisionTrace decision;
                 try
                 {
-                    decision = Neuron.Tick(
+                    decision = decisionRuntime.Tick(
                         Configuration.ActionCertaintyThreshold,
-                        offeredAdvice);
+                        offeredAdvice,
+                        structuralObserver,
+                        satisfactionPolicy,
+                        candidateStateProjectionObserver);
                     agentTickOrdinal++;
                     lastObservedNeuronCycle = decision.CycleIndex;
                 }
@@ -122,11 +182,11 @@ namespace Roll4d4.Klep.Core
                     }
 
                     lastObservedNeuronCycle = Neuron.CycleIndex;
-                    ObserveFaultedExecutions(Neuron.LastTrace);
+                    ObserveFaultedExecutions(decisionRuntime.LastTrace);
                     LastTrace = BuildFaultTrace(
-                        Neuron.LastTrace);
+                        decisionRuntime.LastTrace);
                     if (!ReferenceEquals(
-                            Neuron.LastTrace.KeySnapshot,
+                            decisionRuntime.LastTrace.KeySnapshot,
                             KLEPKeySnapshot.Empty))
                     {
                         RememberBoundary(LastTrace);
@@ -233,7 +293,26 @@ namespace Roll4d4.Klep.Core
             finally
             {
                 isTicking = false;
+                Neuron.ExitAgentDecisionBoundary(this);
             }
+        }
+
+        internal KLEPAgentTickTrace TickWithPreparedGuidance(
+            KLEPGuidanceAdvice guidanceAdvice)
+        {
+            if (guidanceAdvice == null)
+            {
+                throw new ArgumentNullException(nameof(guidanceAdvice));
+            }
+
+            if (pendingGuidanceAdvice != null)
+            {
+                throw new InvalidOperationException(
+                    "The Agent already has prepared guidance for its next Tick.");
+            }
+
+            pendingGuidanceAdvice = guidanceAdvice;
+            return Tick();
         }
 
         public float GetQValue(
@@ -250,6 +329,17 @@ namespace Roll4d4.Klep.Core
                    state.Actions.TryGetValue(executableStableId, out ActionRecord action)
                 ? action.QValue
                 : 0f;
+        }
+
+        public void RequestExecutableRemap()
+        {
+            if (isTicking)
+            {
+                throw new InvalidOperationException(
+                    "An Executable remap cannot be requested during Agent.Tick.");
+            }
+
+            decisionRuntime.RequestStructuralRemap();
         }
 
         public long GetVisitCount(KLEPKeyEnvironmentSignature environment)
@@ -441,7 +531,7 @@ namespace Roll4d4.Klep.Core
             }
 
             object registrationToken =
-                Neuron.GetRootExecutableRegistrationToken(target.StableId);
+                decisionRuntime.GetRootExecutableRegistrationToken(target.StableId);
             if (registrationToken == null)
             {
                 throw new InvalidOperationException(

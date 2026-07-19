@@ -5,7 +5,7 @@ namespace Roll4d4.Klep.Behaviors
 {
     /// <summary>
     /// Converts one boolean observation supplied by a host into a transient Key.
-    /// The host samples its world before the Neuron Tick and calls
+    /// The host samples its world before the Agent Tick and calls
     /// <see cref="SetObservation"/>; this behavior does not read clocks, physics,
     /// Unity objects, or any other external state while the Tick is executing.
     /// </summary>
@@ -73,7 +73,7 @@ namespace Roll4d4.Klep.Behaviors
 
         /// <summary>
         /// Supplies the deterministic observation that will be consumed by the
-        /// next Neuron Tick. Repeated calls before that Tick use the last value.
+        /// next Agent Tick. Repeated calls before that Tick use the last value.
         /// </summary>
         /// <param name="isPresent">
         /// <see langword="true"/> when the observed condition is present;
@@ -85,17 +85,19 @@ namespace Roll4d4.Klep.Behaviors
         }
 
         /// <summary>
-        /// Emits the exact declared OneCycle Key only for a present observation.
-        /// A sensor sample always completes in its single advancement.
+        /// Emits the exact declared OneCycle Key and succeeds for a present
+        /// observation. An absent observation fails without output because a
+        /// successful run must fulfill every declared output promise.
         /// </summary>
         protected override KLEPExecutableTickStatus OnTick(
             KLEPExecutionContext context)
         {
-            if (isPresent)
+            if (!isPresent)
             {
-                context.Add(outputDefinition);
+                return KLEPExecutableTickStatus.Failed;
             }
 
+            context.Add(outputDefinition);
             return KLEPExecutableTickStatus.Succeeded;
         }
     }

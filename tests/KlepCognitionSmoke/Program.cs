@@ -398,8 +398,8 @@ internal static class Program
         var sourceNeuron = new KLEPNeuron("cognition.source.neuron");
         sourceNeuron.InitializeKey(Key("state.prior"));
         sourceNeuron.InitializeKey(Key("state.consequence"));
-        KLEPKeySnapshot prior = sourceNeuron.Tick().KeySnapshot;
-        KLEPKeySnapshot consequence = sourceNeuron.Tick().KeySnapshot;
+        KLEPKeySnapshot prior = sourceNeuron.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot consequence = sourceNeuron.TickViaAgent().KeySnapshot;
         var moments = new[]
         {
             KLEPMemoryMoment.Capture(
@@ -498,7 +498,7 @@ internal static class Program
             previousConsequence.WaveIndex,
             previousConsequence.Keys);
         KLEPKeySnapshot consequenceSnapshot =
-            fixture.SourceNeuron.Tick().KeySnapshot;
+            fixture.SourceNeuron.TickViaAgent().KeySnapshot;
         KLEPMemoryMoment consequence = KLEPMemoryMoment.Capture(
             "moment.help.followup.consequence",
             KLEPMemoryMomentRole.Consequence,

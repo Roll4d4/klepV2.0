@@ -50,7 +50,7 @@ internal static class Program
 
         var neuron = new KLEPNeuron("identity-neuron");
         neuron.InitializeKey(health);
-        KLEPKeySnapshot snapshot = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot snapshot = neuron.TickViaAgent().KeySnapshot;
 
         var healthLock = new KLEPLock(
             "lock.health", "Has Health", new KLEPKeyPresent(renamed.Id.Value));
@@ -69,8 +69,8 @@ internal static class Program
         var beta = new KLEPNeuron("beta");
 
         alpha.InitializeKey(team, Payload(("teamId", (KLEPKeyValue)0)));
-        KLEPKeySnapshot alphaCycleOne = alpha.Tick().KeySnapshot;
-        KLEPKeySnapshot betaCycleOne = beta.Tick().KeySnapshot;
+        KLEPKeySnapshot alphaCycleOne = alpha.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot betaCycleOne = beta.TickViaAgent().KeySnapshot;
 
         Assert(alphaCycleOne.Contains(team.Id), "The owner sees its Local Key.");
         Assert(!betaCycleOne.Contains(team.Id), "Another Neuron does not see the Local Key.");
@@ -80,9 +80,9 @@ internal static class Program
         KLEPKeyFact alphaFact = First(alphaCycleOne, team.Id);
         Assert(alpha.RemoveKey(alphaFact), "The owner can stage exact Local removal.");
         Assert(alphaCycleOne.Contains(team.Id), "An already-issued snapshot is immutable.");
-        Assert(!alpha.Tick().KeySnapshot.Contains(team.Id),
+        Assert(!alpha.TickViaAgent().KeySnapshot.Contains(team.Id),
             "The staged removal becomes visible at Alpha's next boundary.");
-        Assert(!beta.Tick().KeySnapshot.Contains(team.Id),
+        Assert(!beta.TickViaAgent().KeySnapshot.Contains(team.Id),
             "Alpha's removal has no side effect on Beta.");
     }
 
@@ -96,8 +96,8 @@ internal static class Program
         var secondNeuron = new KLEPNeuron("same-label");
         firstNeuron.InitializeKey(marker, sourceId: "first");
         secondNeuron.InitializeKey(marker, sourceId: "second");
-        KLEPKeyFact firstFact = First(firstNeuron.Tick().KeySnapshot, marker.Id);
-        KLEPKeyFact secondFact = First(secondNeuron.Tick().KeySnapshot, marker.Id);
+        KLEPKeyFact firstFact = First(firstNeuron.TickViaAgent().KeySnapshot, marker.Id);
+        KLEPKeyFact secondFact = First(secondNeuron.TickViaAgent().KeySnapshot, marker.Id);
 
         Equal(firstFact.OccurrenceId, secondFact.OccurrenceId,
             "Textual trace IDs can collide when callers reuse a store label.");
@@ -106,10 +106,10 @@ internal static class Program
         Throws<InvalidOperationException>(() => secondNeuron.ReplaceKey(
             firstFact, Payload(("value", (KLEPKeyValue)2))),
             "A foreign fact cannot authorize replacement despite a textual ID collision.");
-        Assert(secondNeuron.Tick().KeySnapshot.Contains(marker.Id),
+        Assert(secondNeuron.TickViaAgent().KeySnapshot.Contains(marker.Id),
             "The second store remains intact after foreign mutation attempts.");
         Assert(firstNeuron.RemoveKey(firstFact), "The owning store accepts its own fact.");
-        Assert(!firstNeuron.Tick().KeySnapshot.Contains(marker.Id),
+        Assert(!firstNeuron.TickViaAgent().KeySnapshot.Contains(marker.Id),
             "The owning store commits its exact removal normally.");
         Assert(secondFact.Payload.Count == 0,
             "The unrelated occurrence remains unchanged.");
@@ -125,10 +125,10 @@ internal static class Program
 
         KLEPKeyFact anchorFact = neuron.InitializeKey(anchor, sourceId: "scene-load");
         Equal(0L, anchorFact.IssuedTick, "Initialization is staged before cycle one.");
-        Equal(0, neuron.LastTrace.KeySnapshot.Facts.Count,
+        Equal(0, neuron.LastDecisionViaAgent().KeySnapshot.Facts.Count,
             "Initialization never mutates the current cycle-zero snapshot.");
 
-        KLEPKeySnapshot cycleOne = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleOne = neuron.TickViaAgent().KeySnapshot;
         Equal(1L, cycleOne.Tick, "The first Tick creates cycle one.");
         Assert(cycleOne.Contains(anchor.Id), "Initialized Keys are visible in cycle one.");
         Assert(!anchorFact.IsActivated, "The staging handle remains an immutable pending record.");
@@ -141,10 +141,10 @@ internal static class Program
         Equal(1L, pulseFact.IssuedTick, "A runtime Key records the cycle where it was staged.");
         Assert(!cycleOne.Contains(pulse.Id), "A runtime add cannot alter the current snapshot.");
 
-        KLEPKeySnapshot cycleTwo = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleTwo = neuron.TickViaAgent().KeySnapshot;
         Assert(cycleTwo.Contains(pulse.Id), "A staged runtime add appears next cycle.");
         Assert(cycleTwo.Contains(anchor.Id), "Persistent Keys survive cycle cleanup.");
-        KLEPKeySnapshot cycleThree = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleThree = neuron.TickViaAgent().KeySnapshot;
         Assert(!cycleThree.Contains(pulse.Id), "A OneCycle Key appears in exactly one snapshot.");
         Assert(cycleThree.Contains(anchor.Id), "Persistent Keys remain until exact removal.");
         Assert(cycleTwo.Contains(pulse.Id), "Later expiry cannot mutate an older snapshot.");
@@ -152,7 +152,7 @@ internal static class Program
         var cancelled = new KLEPNeuron("cancelled-add");
         KLEPKeyFact pending = cancelled.AddKey(pulse);
         Assert(cancelled.RemoveKey(pending), "A pending occurrence can be cancelled exactly.");
-        Assert(!cancelled.Tick().KeySnapshot.Contains(pulse.Id),
+        Assert(!cancelled.TickViaAgent().KeySnapshot.Contains(pulse.Id),
             "A cancelled pending occurrence never becomes visible.");
     }
 
@@ -243,8 +243,8 @@ internal static class Program
             Payload(("opaque", (KLEPKeyValue)"preserve-me")),
             sourceId: "exchange-wave-source");
 
-        KLEPKeyFact sourceFact = First(donor.Tick().KeySnapshot, transferred.Id);
-        recipient.Tick();
+        KLEPKeyFact sourceFact = First(donor.TickViaAgent().KeySnapshot, transferred.Id);
+        recipient.TickViaAgent();
         KLEPKeyExchangeResult give = KLEPKeyExchange.GiveKey(
             "exchange.wave-deferred", donor, sourceFact, recipient);
         Assert(give.Succeeded, "The boundary regression setup stages its Give.");
@@ -273,8 +273,8 @@ internal static class Program
         Assert(!recipient.RemoveKey(pendingDelivery),
             "A staged exchange delivery cannot be cancelled independently.");
 
-        KLEPKeySnapshot donorNext = donor.Tick().KeySnapshot;
-        KLEPKeySnapshot recipientNext = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot donorNext = donor.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot recipientNext = recipient.TickViaAgent().KeySnapshot;
         Assert(!donorNext.Contains(transferred.Id),
             "The Give removal publishes at the donor's next top-level Local boundary.");
         KLEPKeyFact delivered = Exact(
@@ -295,14 +295,14 @@ internal static class Program
 
         Assert(first.OccurrenceId != second.OccurrenceId,
             "Each emission receives a distinct occurrence ID.");
-        KLEPKeySnapshot cycleOne = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleOne = neuron.TickViaAgent().KeySnapshot;
         Equal(2, cycleOne.FindAll(signal.Id).Count,
             "Distinct occurrences of one symbolic Key may coexist.");
         Assert(first.OccurrenceId.CompareTo(second.OccurrenceId) < 0,
             "Occurrence sequence is deterministic within a store.");
 
         Assert(neuron.RemoveKey(first), "The first occurrence can be removed exactly.");
-        KLEPKeySnapshot cycleTwo = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleTwo = neuron.TickViaAgent().KeySnapshot;
         Equal(1, cycleTwo.FindAll(signal.Id).Count,
             "Removing one occurrence leaves the other occurrence.");
         Equal(second.OccurrenceId, First(cycleTwo, signal.Id).OccurrenceId,
@@ -313,7 +313,7 @@ internal static class Program
 
         Assert(neuron.RemoveKey(second),
             "Removal targets the exact occurrence handle.");
-        Assert(!neuron.Tick().KeySnapshot.Contains(signal.Id),
+        Assert(!neuron.TickViaAgent().KeySnapshot.Contains(signal.Id),
             "Presence becomes false only after every occurrence is explicitly removed.");
     }
 
@@ -351,7 +351,7 @@ internal static class Program
             defaults);
         var neuron = new KLEPNeuron("payload-neuron");
         neuron.InitializeKey(health);
-        KLEPKeySnapshot cycleOne = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleOne = neuron.TickViaAgent().KeySnapshot;
         KLEPKeyFact original = First(cycleOne, health.Id);
 
         KLEPKeyFact replacement = neuron.ReplaceKey(
@@ -362,7 +362,7 @@ internal static class Program
             "The observed fact retains its original payload.");
         Assert(cycleOne.Contains(health.Id), "Replacement does not mutate the current snapshot.");
 
-        KLEPKeySnapshot cycleTwo = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleTwo = neuron.TickViaAgent().KeySnapshot;
         KLEPKeyFact replaced = First(cycleTwo, health.Id);
         Equal(replacement.OccurrenceId, replaced.OccurrenceId,
             "The staged replacement appears at the next boundary.");
@@ -403,9 +403,9 @@ internal static class Program
                 ("text", (KLEPKeyValue)"opaque")),
             sourceId: "origin.system");
 
-        KLEPKeySnapshot sourceOne = source.Tick().KeySnapshot;
-        recipient.Tick();
-        KLEPKeySnapshot recipientTwo = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot sourceOne = source.TickViaAgent().KeySnapshot;
+        recipient.TickViaAgent();
+        KLEPKeySnapshot recipientTwo = recipient.TickViaAgent().KeySnapshot;
         KLEPKeyFact sourceFact = First(sourceOne, definition.Id);
 
         KLEPKeyExchangeResult result = KLEPKeyExchange.CopyKey(
@@ -448,14 +448,14 @@ internal static class Program
         Assert(!source.RemoveKey(pendingCopy),
             "The source has no mutation authority over the recipient occurrence.");
 
-        KLEPKeySnapshot recipientThree = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot recipientThree = recipient.TickViaAgent().KeySnapshot;
         KLEPKeyFact activeCopy = Exact(recipientThree, pendingCopy.OccurrenceId);
         Equal(3L, activeCopy.ActivatedTick,
             "The delivered fact activates at the recipient's next boundary.");
         AssertPayloadEqual(sourceFact.Payload, activeCopy.Payload,
             "Activation does not reinterpret the copied payload.");
 
-        KLEPKeySnapshot sourceTwo = source.Tick().KeySnapshot;
+        KLEPKeySnapshot sourceTwo = source.TickViaAgent().KeySnapshot;
         Assert(ContainsOccurrence(sourceTwo, sourceFact.OccurrenceId),
             "The exact source occurrence remains after Copy.");
         Assert(recipient.RemoveKey(activeCopy),
@@ -477,8 +477,8 @@ internal static class Program
         recipient.InitializeKey(
             signal, Payload(("ordinal", (KLEPKeyValue)3)), sourceId: "recipient-source");
 
-        KLEPKeySnapshot donorOne = donor.Tick().KeySnapshot;
-        KLEPKeySnapshot recipientOne = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot donorOne = donor.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot recipientOne = recipient.TickViaAgent().KeySnapshot;
         KLEPKeyFact exactFirst = Exact(donorOne, firstPending.OccurrenceId);
         KLEPKeyFact exactSecond = Exact(donorOne, secondPending.OccurrenceId);
 
@@ -494,7 +494,7 @@ internal static class Program
         Equal(1, recipientOne.FindAll(signal.Id).Count,
             "Give staging does not rewrite the recipient's current snapshot.");
 
-        KLEPKeySnapshot recipientTwo = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot recipientTwo = recipient.TickViaAgent().KeySnapshot;
         Equal(2, recipientTwo.FindAll(signal.Id).Count,
             "A delivered occurrence coexists with the recipient's same-ID occurrence.");
         KLEPKeyFact delivered = Exact(
@@ -503,7 +503,7 @@ internal static class Program
             "Give transports only the selected occurrence's opaque payload.");
         Equal("first-source", delivered.SourceId, "Give preserves the selected SourceId.");
 
-        KLEPKeySnapshot donorTwo = donor.Tick().KeySnapshot;
+        KLEPKeySnapshot donorTwo = donor.TickViaAgent().KeySnapshot;
         Equal(1, donorTwo.FindAll(signal.Id).Count,
             "Give removes one occurrence rather than every same-ID occurrence.");
         Assert(!ContainsOccurrence(donorTwo, exactFirst.OccurrenceId),
@@ -523,7 +523,7 @@ internal static class Program
         var intruder = new KLEPNeuron("take-intruder");
         donor.InitializeKey(
             definition, Payload(("value", (KLEPKeyValue)17)), sourceId: "grant-source");
-        KLEPKeySnapshot donorOne = donor.Tick().KeySnapshot;
+        KLEPKeySnapshot donorOne = donor.TickViaAgent().KeySnapshot;
         KLEPKeyFact sourceFact = First(donorOne, definition.Id);
 
         KLEPKeyTakeGrant grant = KLEPKeyExchange.CreateTakeGrant(
@@ -564,12 +564,12 @@ internal static class Program
         Equal(KLEPKeyExchangeFailure.FactNotOwnedOrAvailable, replay.Failure,
             "A stale Take grant reports that its exact occurrence is unavailable.");
 
-        Assert(!donor.Tick().KeySnapshot.Contains(definition.Id),
+        Assert(!donor.TickViaAgent().KeySnapshot.Contains(definition.Id),
             "A successful Take removes the donor occurrence at the next boundary.");
-        KLEPKeyFact recipientFact = First(recipient.Tick().KeySnapshot, definition.Id);
+        KLEPKeyFact recipientFact = First(recipient.TickViaAgent().KeySnapshot, definition.Id);
         AssertPayloadEqual(sourceFact.Payload, recipientFact.Payload,
             "Take preserves the opaque payload.");
-        Assert(intruder.Tick().KeySnapshot.Contains(definition.Id),
+        Assert(intruder.TickViaAgent().KeySnapshot.Contains(definition.Id),
             "The separate post-denial Copy activates normally.");
     }
 
@@ -585,8 +585,8 @@ internal static class Program
             leftDefinition, Payload(("side", (KLEPKeyValue)"left")), sourceId: "left-source");
         right.InitializeKey(
             rightDefinition, Payload(("side", (KLEPKeyValue)"right")), sourceId: "right-source");
-        KLEPKeySnapshot leftOne = left.Tick().KeySnapshot;
-        KLEPKeySnapshot rightOne = right.Tick().KeySnapshot;
+        KLEPKeySnapshot leftOne = left.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot rightOne = right.TickViaAgent().KeySnapshot;
         KLEPKeyFact leftFact = First(leftOne, leftDefinition.Id);
         KLEPKeyFact rightFact = First(rightOne, rightDefinition.Id);
 
@@ -600,12 +600,12 @@ internal static class Program
         Assert(rightOne.Contains(rightDefinition.Id) && !rightOne.Contains(leftDefinition.Id),
             "Trade staging does not alter the right current snapshot.");
 
-        KLEPKeySnapshot leftTwo = left.Tick().KeySnapshot;
+        KLEPKeySnapshot leftTwo = left.TickViaAgent().KeySnapshot;
         Assert(!leftTwo.Contains(leftDefinition.Id) && leftTwo.Contains(rightDefinition.Id),
             "The left store publishes its removal and delivery at its next boundary.");
         Assert(rightOne.Contains(rightDefinition.Id),
             "The right's older snapshot is unchanged after the left advances first.");
-        KLEPKeySnapshot rightTwo = right.Tick().KeySnapshot;
+        KLEPKeySnapshot rightTwo = right.TickViaAgent().KeySnapshot;
         Assert(!rightTwo.Contains(rightDefinition.Id) && rightTwo.Contains(leftDefinition.Id),
             "The right store independently publishes its staged Trade leg.");
         AssertPayloadEqual(rightFact.Payload, First(leftTwo, rightDefinition.Id).Payload,
@@ -619,9 +619,9 @@ internal static class Program
         invalidLeft.InitializeKey(leftDefinition, sourceId: "invalid-left-source");
         invalidRight.InitializeKey(rightDefinition, sourceId: "invalid-right-source");
         outsider.InitializeKey(rightDefinition, sourceId: "outsider-source");
-        KLEPKeySnapshot invalidLeftOne = invalidLeft.Tick().KeySnapshot;
-        KLEPKeySnapshot invalidRightOne = invalidRight.Tick().KeySnapshot;
-        KLEPKeySnapshot outsiderOne = outsider.Tick().KeySnapshot;
+        KLEPKeySnapshot invalidLeftOne = invalidLeft.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot invalidRightOne = invalidRight.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot outsiderOne = outsider.TickViaAgent().KeySnapshot;
         KLEPKeyFact invalidLeftFact = First(invalidLeftOne, leftDefinition.Id);
         KLEPKeyFact foreignRightFact = First(outsiderOne, rightDefinition.Id);
 
@@ -647,9 +647,9 @@ internal static class Program
         Equal(2L, copyAfterFailure.Deliveries[0].RecipientFact.OccurrenceId.Sequence,
             "A failed Trade does not burn the recipient's next sequence.");
         Assert(ContainsOccurrence(
-                invalidLeft.Tick().KeySnapshot, invalidLeftFact.OccurrenceId),
+                invalidLeft.TickViaAgent().KeySnapshot, invalidLeftFact.OccurrenceId),
             "The failed Trade did not stage a hidden source removal.");
-        Equal(2, invalidRight.Tick().KeySnapshot.Facts.Count,
+        Equal(2, invalidRight.TickViaAgent().KeySnapshot.Facts.Count,
             "Only the explicit follow-up Copy adds a recipient occurrence.");
     }
 
@@ -663,7 +663,7 @@ internal static class Program
         var requester = new KLEPNeuron("request-requester");
         owner.InitializeKey(
             definition, Payload(("private", (KLEPKeyValue)"opaque")), sourceId: "request-source");
-        KLEPKeySnapshot ownerOne = owner.Tick().KeySnapshot;
+        KLEPKeySnapshot ownerOne = owner.TickViaAgent().KeySnapshot;
         KLEPKeyFact ownerFact = First(ownerOne, definition.Id);
 
         KLEPKeyRequest request = KLEPKeyExchange.RequestKey(
@@ -686,7 +686,7 @@ internal static class Program
 
         Assert(ContainsOccurrence(ownerOne, ownerFact.OccurrenceId),
             "Request does not remove or replace the owner's current fact.");
-        Assert(!requester.LastTrace.KeySnapshot.Contains(definition.Id),
+        Assert(!requester.LastDecisionViaAgent().KeySnapshot.Contains(definition.Id),
             "Request does not reveal a fact in the requester's current snapshot.");
 
         KLEPKeyExchangeResult explicitResponse = KLEPKeyExchange.CopyKey(
@@ -694,9 +694,9 @@ internal static class Program
         Assert(explicitResponse.Succeeded, "A separate explicit response can follow a Request.");
         Equal(1L, explicitResponse.Deliveries[0].RecipientFact.OccurrenceId.Sequence,
             "Request itself does not allocate or burn a recipient occurrence.");
-        Assert(ContainsOccurrence(owner.Tick().KeySnapshot, ownerFact.OccurrenceId),
+        Assert(ContainsOccurrence(owner.TickViaAgent().KeySnapshot, ownerFact.OccurrenceId),
             "Request plus Copy retains the owner's exact fact.");
-        Assert(requester.Tick().KeySnapshot.Contains(definition.Id),
+        Assert(requester.TickViaAgent().KeySnapshot.Contains(definition.Id),
             "Only the explicit response becomes visible at the requester boundary.");
     }
 
@@ -710,7 +710,7 @@ internal static class Program
         var lifetimeRecipient = new KLEPNeuron("lifetime-recipient");
         lifetimeSource.InitializeKey(pulse, sourceId: "pulse-source");
         lifetimeSource.InitializeKey(anchor, sourceId: "anchor-source");
-        KLEPKeySnapshot lifetimeOne = lifetimeSource.Tick().KeySnapshot;
+        KLEPKeySnapshot lifetimeOne = lifetimeSource.TickViaAgent().KeySnapshot;
         KLEPKeyFact pulseFact = First(lifetimeOne, pulse.Id);
         KLEPKeyFact anchorFact = First(lifetimeOne, anchor.Id);
 
@@ -728,7 +728,7 @@ internal static class Program
         Assert(anchorCopy.Succeeded, "A valid exchange can follow a rejected OneCycle Give.");
         Equal(1L, anchorCopy.Deliveries[0].RecipientFact.OccurrenceId.Sequence,
             "Rejected OneCycle exchange does not burn recipient sequence.");
-        KLEPKeySnapshot lifetimeRecipientOne = lifetimeRecipient.Tick().KeySnapshot;
+        KLEPKeySnapshot lifetimeRecipientOne = lifetimeRecipient.TickViaAgent().KeySnapshot;
         Assert(lifetimeRecipientOne.Contains(anchor.Id) && !lifetimeRecipientOne.Contains(pulse.Id),
             "The recipient publishes only the explicitly valid delivery.");
 
@@ -745,8 +745,8 @@ internal static class Program
         scopeSource.InitializeKey(global, sourceId: "global-source");
         scopeSource.InitializeKey(local, sourceId: "local-source");
         world.CommitBoundary(1);
-        KLEPKeySnapshot scopeSourceOne = scopeSource.Tick().KeySnapshot;
-        KLEPKeySnapshot scopeRecipientOne = scopeRecipient.Tick().KeySnapshot;
+        KLEPKeySnapshot scopeSourceOne = scopeSource.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot scopeRecipientOne = scopeRecipient.TickViaAgent().KeySnapshot;
         KLEPKeyFact globalFact = First(scopeSourceOne, global.Id);
         KLEPKeyFact localFact = First(scopeSourceOne, local.Id);
 
@@ -765,7 +765,7 @@ internal static class Program
         Equal(1L, localCopy.Deliveries[0].RecipientFact.OccurrenceId.Sequence,
             "Rejected Global exchange does not burn the recipient Local sequence.");
         world.CommitBoundary(2);
-        KLEPKeySnapshot scopeRecipientTwo = scopeRecipient.Tick().KeySnapshot;
+        KLEPKeySnapshot scopeRecipientTwo = scopeRecipient.TickViaAgent().KeySnapshot;
         Assert(scopeRecipientTwo.Contains(local.Id),
             "The later valid Local delivery activates normally.");
         Equal(1, scopeRecipientTwo.FindAll(global.Id).Count,
@@ -797,8 +797,8 @@ internal static class Program
         source.InitializeKey(localClash, sourceId: "source-clash");
         source.InitializeKey(safe, sourceId: "source-safe");
         recipient.InitializeKey(safe, sourceId: "recipient-safe");
-        KLEPKeySnapshot sourceOne = source.Tick().KeySnapshot;
-        KLEPKeySnapshot recipientOne = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot sourceOne = source.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot recipientOne = recipient.TickViaAgent().KeySnapshot;
         KLEPKeyFact clashFact = First(sourceOne, clashId);
         KLEPKeyFact sourceSafeFact = First(sourceOne, safe.Id);
         KLEPKeyFact recipientSafeFact = First(recipientOne, safe.Id);
@@ -833,12 +833,12 @@ internal static class Program
             "Cross-scope rejections do not burn the recipient occurrence sequence.");
 
         world.CommitBoundary(2);
-        KLEPKeySnapshot recipientTwo = recipient.Tick().KeySnapshot;
+        KLEPKeySnapshot recipientTwo = recipient.TickViaAgent().KeySnapshot;
         Equal(2, recipientTwo.FindAll(safe.Id).Count,
             "The recipient publishes only its existing and valid delivered Local facts.");
         Equal(1, recipientTwo.FindAll(clashId).Count,
             "The recipient snapshot remains unambiguous with only the Global clash ID.");
-        KLEPKeySnapshot sourceTwo = source.Tick().KeySnapshot;
+        KLEPKeySnapshot sourceTwo = source.TickViaAgent().KeySnapshot;
         Assert(ContainsOccurrence(sourceTwo, clashFact.OccurrenceId),
             "Rejected Give and Trade do not stage source removal.");
         Assert(ContainsOccurrence(sourceTwo, sourceSafeFact.OccurrenceId),
@@ -859,7 +859,7 @@ internal static class Program
         var neuron = new KLEPNeuron("health-example-neuron");
         neuron.InitializeKey(health, sourceId: "spawn");
 
-        KLEPKeySnapshot cycleOne = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleOne = neuron.TickViaAgent().KeySnapshot;
         Assert(!deathLock.Evaluate(cycleOne).IsSatisfied,
             "Not(Health) is false while Health exists.");
         KLEPKeyFact damaged = neuron.ReplaceKey(
@@ -867,7 +867,7 @@ internal static class Program
         Assert(!deathLock.Evaluate(cycleOne).IsSatisfied,
             "Changing HP is staged and cannot alter the current Lock result.");
 
-        KLEPKeySnapshot cycleTwo = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleTwo = neuron.TickViaAgent().KeySnapshot;
         KLEPKeyFact zeroHealth = First(cycleTwo, health.Id);
         Equal(damaged.OccurrenceId, zeroHealth.OccurrenceId,
             "Cycle two observes the zero-HP replacement.");
@@ -880,14 +880,14 @@ internal static class Program
             "Consume Health At Zero stages removal of the exact Health occurrence.");
         Assert(!deathLock.Evaluate(cycleTwo).IsSatisfied,
             "Removal cannot change an in-flight snapshot.");
-        KLEPKeySnapshot cycleThree = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleThree = neuron.TickViaAgent().KeySnapshot;
         Assert(deathLock.Evaluate(cycleThree).IsSatisfied,
             "At the next boundary, absent Health opens the death-animation Lock.");
 
         neuron.AddKey(health, Payload(("hp", (KLEPKeyValue)10)), sourceId: "respawn");
         Assert(deathLock.Evaluate(cycleThree).IsSatisfied,
             "A staged respawn cannot rewrite the current snapshot.");
-        Assert(!deathLock.Evaluate(neuron.Tick().KeySnapshot).IsSatisfied,
+        Assert(!deathLock.Evaluate(neuron.TickViaAgent().KeySnapshot).IsSatisfied,
             "Restored Health closes the recomputed Not(Health) Lock.");
     }
 
@@ -903,15 +903,15 @@ internal static class Program
             KLEPKeyScope.Global);
         KLEPKeyFact rain = alpha.InitializeKey(weather, sourceId: "weather-system");
 
-        Throws<InvalidOperationException>(() => alpha.Tick(),
+        Throws<InvalidOperationException>(() => alpha.TickViaAgent(),
             "A Neuron refuses to advance an uncommitted Global boundary.");
         Equal(0L, alpha.CycleIndex, "A rejected Global boundary does not advance the Neuron.");
         Equal(-1L, alpha.LocalKeyStore.LastCommittedTick,
             "A rejected Global boundary does not partially commit Local state.");
 
         world.CommitBoundary(1);
-        KLEPKeySnapshot alphaOne = alpha.Tick().KeySnapshot;
-        KLEPKeySnapshot betaOne = beta.Tick().KeySnapshot;
+        KLEPKeySnapshot alphaOne = alpha.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot betaOne = beta.TickViaAgent().KeySnapshot;
         Assert(alphaOne.Contains(weather.Id), "Alpha reads the world-owned Global snapshot.");
         Assert(betaOne.Contains(weather.Id), "Beta reads the same Global snapshot.");
         Equal(rain.OccurrenceId, First(alphaOne, weather.Id).OccurrenceId,
@@ -923,8 +923,8 @@ internal static class Program
             new KLEPKeyId("key.local-marker"), "Local Marker", KLEPKeyLifetime.Persistent);
         alpha.AddKey(localMarker);
         world.CommitBoundary(2);
-        KLEPKeySnapshot alphaTwo = alpha.Tick().KeySnapshot;
-        KLEPKeySnapshot betaTwo = beta.Tick().KeySnapshot;
+        KLEPKeySnapshot alphaTwo = alpha.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot betaTwo = beta.TickViaAgent().KeySnapshot;
         Assert(alphaTwo.Contains(localMarker.Id), "Alpha sees its Local Key.");
         Assert(!betaTwo.Contains(localMarker.Id), "Beta never sees Alpha's Local Key.");
 
@@ -932,9 +932,9 @@ internal static class Program
         Assert(alphaTwo.Contains(weather.Id) && betaTwo.Contains(weather.Id),
             "Global staging cannot mutate either current snapshot.");
         world.CommitBoundary(3);
-        Assert(!alpha.Tick().KeySnapshot.Contains(weather.Id),
+        Assert(!alpha.TickViaAgent().KeySnapshot.Contains(weather.Id),
             "Alpha sees Global removal at the coordinated boundary.");
-        Assert(!beta.Tick().KeySnapshot.Contains(weather.Id),
+        Assert(!beta.TickViaAgent().KeySnapshot.Contains(weather.Id),
             "Beta sees the same Global removal at that boundary.");
 
         var pulse = Definition(
@@ -944,20 +944,20 @@ internal static class Program
             KLEPKeyScope.Global);
         alpha.AddKey(pulse);
         world.CommitBoundary(4);
-        Assert(alpha.Tick().KeySnapshot.Contains(pulse.Id),
+        Assert(alpha.TickViaAgent().KeySnapshot.Contains(pulse.Id),
             "A Global OneCycle Key is visible to Alpha for its committed boundary.");
-        Assert(beta.Tick().KeySnapshot.Contains(pulse.Id),
+        Assert(beta.TickViaAgent().KeySnapshot.Contains(pulse.Id),
             "A Global OneCycle Key is visible to Beta for the same boundary.");
         world.CommitBoundary(5);
-        Assert(!alpha.Tick().KeySnapshot.Contains(pulse.Id),
+        Assert(!alpha.TickViaAgent().KeySnapshot.Contains(pulse.Id),
             "The world owner expires the Global OneCycle Key next boundary.");
-        Assert(!beta.Tick().KeySnapshot.Contains(pulse.Id),
+        Assert(!beta.TickViaAgent().KeySnapshot.Contains(pulse.Id),
             "Every synchronized Neuron observes identical Global expiry.");
 
         var otherWorld = new KLEPKeyStore("other-world.keys", KLEPKeyScope.Global);
         var gamma = new KLEPNeuron("global-gamma", otherWorld);
         otherWorld.CommitBoundary(1);
-        Assert(!gamma.Tick().KeySnapshot.Contains(weather.Id),
+        Assert(!gamma.TickViaAgent().KeySnapshot.Contains(weather.Id),
             "Another explicitly injected Global store remains isolated.");
     }
 
@@ -981,7 +981,7 @@ internal static class Program
         Throws<InvalidOperationException>(() => late.InitializeKey(weather),
             "A late Neuron cannot retroactively initialize an already-running Global store.");
 
-        KLEPKeySnapshot firstObserved = late.Tick().KeySnapshot;
+        KLEPKeySnapshot firstObserved = late.TickViaAgent().KeySnapshot;
         Equal(5L, late.CycleIndex, "A late Neuron aligns its first cycle to the world.");
         Assert(firstObserved.Contains(weather.Id), "The late Neuron sees current persistent Globals.");
         Assert(firstObserved.Contains(local.Id), "Its initial Local Key appears on its first cycle.");
@@ -1001,14 +1001,14 @@ internal static class Program
             "Staging after boundary five cannot rewrite boundary five.");
 
         world.CommitBoundary(6);
-        KLEPKeySnapshot cycleSix = late.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleSix = late.TickViaAgent().KeySnapshot;
         Assert(cycleSix.Contains(pulse.Id),
             "The staged Global emission appears at the next world boundary.");
         Equal(6L, First(cycleSix, pulse.Id).ActivatedTick,
             "The Global fact exposes its real activation boundary.");
 
         world.CommitBoundary(8);
-        KLEPKeySnapshot cycleEight = late.Tick().KeySnapshot;
+        KLEPKeySnapshot cycleEight = late.TickViaAgent().KeySnapshot;
         Equal(8L, late.CycleIndex, "A Neuron can recover after skipping a world boundary.");
         Assert(!cycleEight.Contains(pulse.Id),
             "A skipped OneCycle Global pulse is expired rather than replayed late.");
@@ -1079,11 +1079,11 @@ internal static class Program
 
         var tampered = new KLEPNeuron("tampered-local");
         tampered.LocalKeyStore.CommitBoundary(2);
-        Throws<InvalidOperationException>(() => tampered.Tick(),
+        Throws<InvalidOperationException>(() => tampered.TickViaAgent(),
             "A Neuron detects external advancement of its Local store.");
         Equal(0L, tampered.CycleIndex,
             "A rejected Local boundary does not partially advance CycleIndex.");
-        Equal(0L, tampered.LastTrace.CycleIndex,
+        Equal(0L, tampered.LastDecisionViaAgent().CycleIndex,
             "A rejected Local boundary does not publish a mismatched trace.");
 
         var clashingLocalStore = new KLEPKeyStore("clash.local", KLEPKeyScope.Local);
@@ -1106,7 +1106,7 @@ internal static class Program
         var neuron = new KLEPNeuron("batch-neuron");
         Throws<ArgumentNullException>(() => neuron.InitializeKeys(new[] { first, null }),
             "Batch initialization validates the complete input before staging.");
-        Equal(0, neuron.Tick().KeySnapshot.Facts.Count,
+        Equal(0, neuron.TickViaAgent().KeySnapshot.Facts.Count,
             "A failed batch leaves no partially initialized Keys.");
     }
 
@@ -1144,7 +1144,7 @@ internal static class Program
         neuron.InitializeKey(alpha, sourceId: "first-alpha");
         neuron.InitializeKey(middle, Payload(("value", (KLEPKeyValue)2)));
         neuron.InitializeKey(alpha, sourceId: "second-alpha");
-        KLEPKeySnapshot snapshot = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot snapshot = neuron.TickViaAgent().KeySnapshot;
 
         var expression = new KLEPAll(
             new KLEPKeyPresent(alpha.Id.Value),
@@ -1210,14 +1210,14 @@ internal static class Program
                 ("number", (KLEPKeyValue)22),
                 ("text", (KLEPKeyValue)"right")),
             sourceId: "repeatable-right-source");
-        KLEPKeyFact leftFact = First(left.Tick().KeySnapshot, leftDefinition.Id);
-        KLEPKeyFact rightFact = First(right.Tick().KeySnapshot, rightDefinition.Id);
+        KLEPKeyFact leftFact = First(left.TickViaAgent().KeySnapshot, leftDefinition.Id);
+        KLEPKeyFact rightFact = First(right.TickViaAgent().KeySnapshot, rightDefinition.Id);
 
         KLEPKeyExchangeResult trade = KLEPKeyExchange.TradeKeys(
             "exchange.repeatable", left, leftFact, right, rightFact);
         Assert(trade.Succeeded, "The canonical exchange scenario must stage successfully.");
-        KLEPKeySnapshot leftResult = left.Tick().KeySnapshot;
-        KLEPKeySnapshot rightResult = right.Tick().KeySnapshot;
+        KLEPKeySnapshot leftResult = left.TickViaAgent().KeySnapshot;
+        KLEPKeySnapshot rightResult = right.TickViaAgent().KeySnapshot;
 
         var text = new StringBuilder();
         text.Append(trade.ExchangeId).Append('|')

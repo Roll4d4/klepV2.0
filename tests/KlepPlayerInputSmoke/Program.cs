@@ -15,7 +15,10 @@ internal static class Program
     private const string MouseAimId = "key.input.mouse-aim";
 
     private const string GroundSensorId = "sensor.ground";
-    private const string KeyboardSensorId = "sensor.keyboard-movement";
+    private const string WSensorId = "sensor.keyboard-movement.w";
+    private const string ASensorId = "sensor.keyboard-movement.a";
+    private const string SSensorId = "sensor.keyboard-movement.s";
+    private const string DSensorId = "sensor.keyboard-movement.d";
     private const string MouseSensorId = "sensor.mouse-aim";
     private const string LocomotionId = "action.player-locomotion";
 
@@ -26,6 +29,7 @@ internal static class Program
     {
         VerifyKeyboardMovementMath();
         VerifyMouseAimPayload();
+        VerifyKeyboardBranchesShareOneSample();
         VerifyNoObservationAndLocksLeavePatient();
         VerifyWProducesSameTickForwardIntent();
         VerifyCombinationsCancelAndNormalize();
@@ -122,6 +126,45 @@ internal static class Program
             "MouseAim rejects infinity");
     }
 
+    private static void VerifyKeyboardBranchesShareOneSample()
+    {
+        var fixture = new PlayerFixture("neuron.player.keyboard-branches");
+        var sample = new KLEPKeyboardMovementInput(
+            true,
+            true,
+            false,
+            false);
+        fixture.SetObservation(false, sample, null);
+
+        Expect(ReferenceEquals(fixture.WSensor.Observation, sample) &&
+               ReferenceEquals(fixture.ASensor.Observation, sample) &&
+               ReferenceEquals(fixture.SSensor.Observation, sample) &&
+               ReferenceEquals(fixture.DSensor.Observation, sample),
+            "Four keyboard branches share the exact immutable host sample");
+        Expect(fixture.WSensor.StableId == WSensorId &&
+               fixture.ASensor.StableId == ASensorId &&
+               fixture.SSensor.StableId == SSensorId &&
+               fixture.DSensor.StableId == DSensorId,
+            "Keyboard branches are four stable-ID-distinct Tandem roots");
+        Expect(fixture.WSensor.Definition.DeclaredOutputs.Count == 1 &&
+               fixture.ASensor.Definition.DeclaredOutputs.Count == 1 &&
+               fixture.SSensor.Definition.DeclaredOutputs.Count == 1 &&
+               fixture.DSensor.Definition.DeclaredOutputs.Count == 1 &&
+               ReferenceEquals(fixture.WSensor.OutputDefinition, fixture.W) &&
+               ReferenceEquals(fixture.ASensor.OutputDefinition, fixture.A) &&
+               ReferenceEquals(fixture.SSensor.OutputDefinition, fixture.S) &&
+               ReferenceEquals(fixture.DSensor.OutputDefinition, fixture.D),
+            "Each keyboard branch declares and exposes exactly its inferred direction output");
+
+        KLEPDecisionTrace decision = fixture.Agent.Tick().Decision;
+        Expect(decision.KeySnapshot.Contains(WId) &&
+               decision.KeySnapshot.Contains(AId) &&
+               !decision.KeySnapshot.Contains(SId) &&
+               !decision.KeySnapshot.Contains(DId),
+            "Shared W+A sample publishes only the two pressed branch Keys");
+        ExpectSensorTrace(decision, false, sample, hasAim: false);
+    }
+
     private static void VerifyNoObservationAndLocksLeavePatient()
     {
         var fixture = new PlayerFixture("neuron.player.patient");
@@ -139,6 +182,11 @@ internal static class Program
         Expect(empty.InitialKeySnapshot.Facts.Count == 0 &&
                empty.KeySnapshot.Facts.Count == 0,
             "Empty sensors publish no facts");
+        ExpectSensorTrace(
+            empty,
+            grounded: false,
+            KLEPKeyboardMovementInput.None,
+            hasAim: false);
         Expect(FindCandidate(empty, LocomotionId).IsEligible == false,
             "Locomotion is filtered before scoring when both Locks are absent");
         Expect(FindStep(empty, LocomotionId, KLEPExecutableStepKind.Solo) == null,
@@ -155,6 +203,11 @@ internal static class Program
                noAim.KeySnapshot.Contains(WId) &&
                !noAim.KeySnapshot.Contains(MouseAimId),
             "The blocked Tick still exposes its Ground and W observations");
+        ExpectSensorTrace(
+            noAim,
+            grounded: true,
+            new KLEPKeyboardMovementInput(true, false, false, false),
+            hasAim: false);
         Expect(!FindCandidate(noAim, LocomotionId).IsEligible,
             "Missing MouseAim closes the combined locomotion Lock");
 
@@ -170,6 +223,11 @@ internal static class Program
                noGround.KeySnapshot.Contains(MouseAimId) &&
                !noGround.KeySnapshot.Contains(GroundId),
             "The blocked Tick preserves W and MouseAim facts");
+        ExpectSensorTrace(
+            noGround,
+            grounded: false,
+            new KLEPKeyboardMovementInput(true, false, false, false),
+            hasAim: true);
         Expect(!FindCandidate(noGround, LocomotionId).IsEligible,
             "Missing Ground closes the combined locomotion Lock");
         Expect(!fixture.Locomotion.TryGetIntent(
@@ -234,8 +292,8 @@ internal static class Program
             "A locomotion intent cannot be consumed for another Tick");
 
         Expect(GetOnlyFact(decision.KeySnapshot, fixture.W.Id).SourceId ==
-               KeyboardSensorId,
-            "W fact retains keyboard-sensor provenance");
+               WSensorId,
+            "W fact retains its dedicated keyboard-branch provenance");
         Expect(GetOnlyFact(decision.KeySnapshot, fixture.MouseAim.Id).SourceId ==
                MouseSensorId,
             "MouseAim fact retains mouse-sensor provenance");
@@ -245,6 +303,11 @@ internal static class Program
         Expect(decision.TandemWaves.Count >= 1 &&
                decision.TandemWaves[0].DidLocalStateChange,
             "The trace exposes the sensor publication barrier");
+        ExpectSensorTrace(
+            decision,
+            grounded: true,
+            new KLEPKeyboardMovementInput(true, false, false, false),
+            hasAim: true);
     }
 
     private static void VerifyCombinationsCancelAndNormalize()
@@ -344,6 +407,11 @@ internal static class Program
                readAim.WorldY == 1d &&
                readAim.WorldZ == 14d,
             "Aim-only intent still requests the exact rotation target");
+        ExpectSensorTrace(
+            decision,
+            grounded: true,
+            KLEPKeyboardMovementInput.None,
+            hasAim: true);
     }
 
     private static void VerifyOneCycleInputsDoNotLeak()
@@ -355,6 +423,11 @@ internal static class Program
             new KLEPKeyboardMovementInput(true, false, false, false),
             firstAim);
         KLEPDecisionTrace first = fixture.Agent.Tick().Decision;
+        ExpectSensorTrace(
+            first,
+            grounded: true,
+            new KLEPKeyboardMovementInput(true, false, false, false),
+            hasAim: true);
         KLEPKeyFact firstW = GetOnlyFact(first.KeySnapshot, fixture.W.Id);
         KLEPKeyFact firstAimFact =
             GetOnlyFact(first.KeySnapshot, fixture.MouseAim.Id);
@@ -365,6 +438,11 @@ internal static class Program
             new KLEPKeyboardMovementInput(false, true, false, false),
             secondAim);
         KLEPDecisionTrace second = fixture.Agent.Tick().Decision;
+        ExpectSensorTrace(
+            second,
+            grounded: true,
+            new KLEPKeyboardMovementInput(false, true, false, false),
+            hasAim: true);
         Expect(!second.KeySnapshot.Contains(WId) &&
                second.KeySnapshot.Contains(AId),
             "A later A sample does not leak the prior W fact");
@@ -387,6 +465,11 @@ internal static class Program
             new KLEPKeyboardMovementInput(false, false, false, true),
             null);
         KLEPDecisionTrace lostAim = fixture.Agent.Tick().Decision;
+        ExpectSensorTrace(
+            lostAim,
+            grounded: true,
+            new KLEPKeyboardMovementInput(false, false, false, true),
+            hasAim: false);
         Expect(lostAim.IsPatient &&
                lostAim.CurrentSoloExecutableId == null,
             "Losing MouseAim cancels locomotion and returns to patient");
@@ -422,6 +505,8 @@ internal static class Program
 
         KLEPDecisionTrace left = normal.Agent.Tick().Decision;
         KLEPDecisionTrace right = reversed.Agent.Tick().Decision;
+        ExpectSensorTrace(left, true, input, hasAim: true);
+        ExpectSensorTrace(right, true, input, hasAim: true);
         Expect(SerializeDecision(left) == SerializeDecision(right),
             "Registration order cannot change the input decision trace");
         bool hasLeftIntent = normal.Locomotion.TryGetIntent(
@@ -459,7 +544,7 @@ internal static class Program
                     "Bad keyboard mode",
                     KLEPExecutableKind.Sensor,
                     executionMode: KLEPExecutionMode.Solo,
-                    declaredOutputs: new[] { w, a, s, d }),
+                    declaredOutputs: new[] { w }),
                 w, a, s, d),
             "Tandem",
             "Keyboard sensor rejects Solo mode");
@@ -470,10 +555,10 @@ internal static class Program
                     "Bad keyboard count",
                     KLEPExecutableKind.Sensor,
                     executionMode: KLEPExecutionMode.Tandem,
-                    declaredOutputs: new[] { w, a, s }),
+                    declaredOutputs: new[] { w, a }),
                 w, a, s, d),
-            "four",
-            "Keyboard sensor requires four outputs");
+            "exactly one",
+            "A keyboard sensor branch requires one guaranteed output");
 
         KLEPKeyDefinition persistentW = new KLEPKeyDefinition(
             new KLEPKeyId("key.input.persistent-w"),
@@ -486,7 +571,7 @@ internal static class Program
                     "Bad keyboard lifetime",
                     KLEPExecutableKind.Sensor,
                     executionMode: KLEPExecutionMode.Tandem,
-                    declaredOutputs: new[] { persistentW, a, s, d }),
+                    declaredOutputs: new[] { persistentW }),
                 persistentW, a, s, d),
             "OneCycle",
             "Keyboard sensor rejects a Persistent direction Key");
@@ -494,9 +579,12 @@ internal static class Program
         KLEPKeyDefinition wAlias = MakeOneCycleKey(WId, "W alias");
         ExpectThrows<ArgumentException>(
             () => new KLEPKeyboardMovementSensorExecutable(
-                MakeKeyboardDefinition(w, a, s, d),
+                MakeKeyboardDefinition(
+                    "bad.keyboard.alias",
+                    "Bad keyboard alias",
+                    w),
                 wAlias, a, s, d),
-            "exact declared",
+            "supplied W, A, S, or D",
             "Keyboard sensor rejects a same-ID but different definition object");
 
         ExpectThrows<ArgumentException>(
@@ -538,7 +626,10 @@ internal static class Program
 
         ExpectThrows<ArgumentNullException>(
             () => new KLEPKeyboardMovementSensorExecutable(
-                    MakeKeyboardDefinition(w, a, s, d),
+                    MakeKeyboardDefinition(
+                        "keyboard.null-observation",
+                        "Keyboard null observation",
+                        w),
                     w, a, s, d)
                 .SetObservation(null),
             "observation",
@@ -553,6 +644,7 @@ internal static class Program
     {
         fixture.SetObservation(true, input, aim);
         decision = fixture.Agent.Tick().Decision;
+        ExpectSensorTrace(decision, true, input, aim != null);
         Expect(fixture.Locomotion.TryGetIntent(
                    decision.CycleIndex,
                    out KLEPKeyboardMovementInput intent,
@@ -602,17 +694,16 @@ internal static class Program
     }
 
     private static KLEPExecutableDefinition MakeKeyboardDefinition(
-        KLEPKeyDefinition w,
-        KLEPKeyDefinition a,
-        KLEPKeyDefinition s,
-        KLEPKeyDefinition d)
+        string stableId,
+        string displayName,
+        KLEPKeyDefinition output)
     {
         return new KLEPExecutableDefinition(
-            KeyboardSensorId,
-            "Keyboard Movement Sensor",
+            stableId,
+            displayName,
             KLEPExecutableKind.Sensor,
             executionMode: KLEPExecutionMode.Tandem,
-            declaredOutputs: new[] { w, a, s, d });
+            declaredOutputs: new[] { output });
     }
 
     private static KLEPExecutableDefinition MakeMouseDefinition(
@@ -677,6 +768,68 @@ internal static class Program
         }
 
         return null;
+    }
+
+    private static void ExpectSensorTrace(
+        KLEPDecisionTrace trace,
+        bool grounded,
+        KLEPKeyboardMovementInput keyboard,
+        bool hasAim)
+    {
+        if (keyboard == null)
+        {
+            throw new ArgumentNullException(nameof(keyboard));
+        }
+
+        int sensorStepCount = 0;
+        foreach (KLEPExecutableStepTrace step in trace.Executions)
+        {
+            if (step.Kind == KLEPExecutableStepKind.Tandem &&
+                IsInputSensorId(step.ExecutableStableId))
+            {
+                sensorStepCount++;
+            }
+        }
+
+        Expect(sensorStepCount == 6,
+            "Each input Tick traces Ground, four keyboard branches, and MouseAim exactly once");
+        ExpectSensorStep(trace, GroundSensorId, grounded);
+        ExpectSensorStep(trace, WSensorId, keyboard.W);
+        ExpectSensorStep(trace, ASensorId, keyboard.A);
+        ExpectSensorStep(trace, SSensorId, keyboard.S);
+        ExpectSensorStep(trace, DSensorId, keyboard.D);
+        ExpectSensorStep(trace, MouseSensorId, hasAim);
+    }
+
+    private static void ExpectSensorStep(
+        KLEPDecisionTrace trace,
+        string stableId,
+        bool shouldSucceed)
+    {
+        KLEPExecutableStepTrace step = FindStep(
+            trace,
+            stableId,
+            KLEPExecutableStepKind.Tandem);
+        KLEPExecutableState expectedState = shouldSucceed
+            ? KLEPExecutableState.Succeeded
+            : KLEPExecutableState.Failed;
+        int expectedOutputs = shouldSucceed ? 1 : 0;
+        Expect(step != null &&
+               step.State == expectedState &&
+               step.Outputs.Count == expectedOutputs,
+            shouldSucceed
+                ? $"Input sensor '{stableId}' succeeds with its one guaranteed output"
+                : $"Input sensor '{stableId}' fails without output when its observation is absent");
+    }
+
+    private static bool IsInputSensorId(string stableId)
+    {
+        return stableId == GroundSensorId ||
+               stableId == WSensorId ||
+               stableId == ASensorId ||
+               stableId == SSensorId ||
+               stableId == DSensorId ||
+               stableId == MouseSensorId;
     }
 
     private static KLEPKeyFact GetOnlyFact(
@@ -790,8 +943,17 @@ internal static class Program
 
             GroundSensor = new KLEPObservedKeySensorExecutable(
                 MakeGroundDefinition(Ground));
-            KeyboardSensor = new KLEPKeyboardMovementSensorExecutable(
-                MakeKeyboardDefinition(W, A, S, D),
+            WSensor = new KLEPKeyboardMovementSensorExecutable(
+                MakeKeyboardDefinition(WSensorId, "W Keyboard Sensor", W),
+                W, A, S, D);
+            ASensor = new KLEPKeyboardMovementSensorExecutable(
+                MakeKeyboardDefinition(ASensorId, "A Keyboard Sensor", A),
+                W, A, S, D);
+            SSensor = new KLEPKeyboardMovementSensorExecutable(
+                MakeKeyboardDefinition(SSensorId, "S Keyboard Sensor", S),
+                W, A, S, D);
+            DSensor = new KLEPKeyboardMovementSensorExecutable(
+                MakeKeyboardDefinition(DSensorId, "D Keyboard Sensor", D),
                 W, A, S, D);
             MouseSensor = new KLEPMouseAimSensorExecutable(
                 MakeMouseDefinition(MouseAim),
@@ -804,7 +966,10 @@ internal static class Program
             var executables = new List<KLEPExecutableBase>
             {
                 GroundSensor,
-                KeyboardSensor,
+                WSensor,
+                ASensor,
+                SSensor,
+                DSensor,
                 MouseSensor,
                 Locomotion
             };
@@ -828,7 +993,10 @@ internal static class Program
         internal KLEPKeyDefinition D { get; }
         internal KLEPKeyDefinition MouseAim { get; }
         internal KLEPObservedKeySensorExecutable GroundSensor { get; }
-        internal KLEPKeyboardMovementSensorExecutable KeyboardSensor { get; }
+        internal KLEPKeyboardMovementSensorExecutable WSensor { get; }
+        internal KLEPKeyboardMovementSensorExecutable ASensor { get; }
+        internal KLEPKeyboardMovementSensorExecutable SSensor { get; }
+        internal KLEPKeyboardMovementSensorExecutable DSensor { get; }
         internal KLEPMouseAimSensorExecutable MouseSensor { get; }
         internal KLEPPlayerLocomotionExecutable Locomotion { get; }
         internal KLEPNeuron Neuron { get; }
@@ -840,7 +1008,10 @@ internal static class Program
             KLEPMouseAimObservation aim)
         {
             GroundSensor.SetObservation(grounded);
-            KeyboardSensor.SetObservation(keyboard);
+            WSensor.SetObservation(keyboard);
+            ASensor.SetObservation(keyboard);
+            SSensor.SetObservation(keyboard);
+            DSensor.SetObservation(keyboard);
             MouseSensor.SetObservation(aim);
         }
     }

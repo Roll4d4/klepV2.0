@@ -4,6 +4,61 @@ using System.Collections.ObjectModel;
 
 namespace Roll4d4.Klep.Core
 {
+    /// <summary>
+    /// The complete read-only input available while one eligible Goal evaluates
+    /// its intrinsic attraction for the current arbitration snapshot.
+    /// </summary>
+    public sealed class KLEPGoalAttractionContext
+    {
+        internal KLEPGoalAttractionContext(
+            KLEPExecutableDefinition goalDefinition,
+            KLEPKeySnapshot keySnapshot)
+        {
+            GoalDefinition = goalDefinition ??
+                throw new ArgumentNullException(nameof(goalDefinition));
+            KeySnapshot = keySnapshot ??
+                throw new ArgumentNullException(nameof(keySnapshot));
+        }
+
+        public KLEPExecutableDefinition GoalDefinition { get; }
+        public KLEPKeySnapshot KeySnapshot { get; }
+    }
+
+    /// <summary>
+    /// One finite signed contribution produced by a Goal's project-authored,
+    /// read-only attraction evaluator.
+    /// </summary>
+    public sealed class KLEPGoalAttractionEvaluation
+    {
+        public KLEPGoalAttractionEvaluation(
+            float contribution,
+            string explanation = "")
+        {
+            if (float.IsNaN(contribution) || float.IsInfinity(contribution))
+            {
+                throw new ArgumentOutOfRangeException(nameof(contribution));
+            }
+
+            Contribution = contribution;
+            Explanation = explanation ?? string.Empty;
+        }
+
+        public float Contribution { get; }
+        public string Explanation { get; }
+    }
+
+    /// <summary>
+    /// Project policy for a Goal's intrinsic attraction. Implementations must be
+    /// pure: evaluation may inspect only the supplied immutable context.
+    /// </summary>
+    public interface IKLEPGoalAttractionEvaluator
+    {
+        string StableId { get; }
+        string Version { get; }
+        KLEPGoalAttractionEvaluation Evaluate(
+            KLEPGoalAttractionContext context);
+    }
+
     public enum KLEPGoalLayerRequirement
     {
         AllMustFire,
@@ -44,22 +99,21 @@ namespace Roll4d4.Klep.Core
     }
 
     /// <summary>
-    /// An Executable that owns an ordered set of child layers. The Neuron runs
-    /// the Goal as one Solo candidate; the Goal advances only its current layer.
+    /// An Executable that owns an ordered set of child layers. The Agent runs a
+    /// root Goal in its authored Solo or Tandem lane and advances only its
+    /// current layer during one top-level Tick.
     /// </summary>
     public class KLEPGoal : KLEPExecutableBase
     {
         private readonly ReadOnlyCollection<KLEPGoalLayer> layers;
         private readonly ReadOnlyCollection<KLEPExecutableBase> ownedChildren;
-        private ReadOnlyCollection<KLEPExecutableRuntime> childRuntimes;
+        private readonly IKLEPGoalAttractionEvaluator attractionEvaluator;
+        private readonly string attractionEvaluatorStableId;
+        private readonly string attractionEvaluatorVersion;
         private readonly KLEPKeyDefinition activationKey;
-        private readonly HashSet<string> completedChildIds =
-            new HashSet<string>(StringComparer.Ordinal);
-        private ReadOnlyCollection<KLEPExecutionResult> lastChildResults =
-            new ReadOnlyCollection<KLEPExecutionResult>(new List<KLEPExecutionResult>());
 
         public KLEPGoal(KLEPExecutableDefinition definition)
-            : this(definition, null, null)
+            : this(definition, null, null, null)
         {
         }
 
@@ -67,10 +121,29 @@ namespace Roll4d4.Klep.Core
             KLEPExecutableDefinition definition,
             IEnumerable<KLEPGoalLayer> layers,
             KLEPKeyDefinition activationKey = null)
+            : this(definition, layers, activationKey, null)
+        {
+        }
+
+        public KLEPGoal(
+            KLEPExecutableDefinition definition,
+            IEnumerable<KLEPGoalLayer> layers,
+            KLEPKeyDefinition activationKey,
+            IKLEPGoalAttractionEvaluator attractionEvaluator)
             : base(RequireGoalDefinition(definition))
         {
             this.layers = CopyLayers(layers);
             this.activationKey = ValidateActivationKey(definition, activationKey);
+            this.attractionEvaluator = attractionEvaluator;
+            if (attractionEvaluator != null)
+            {
+                attractionEvaluatorStableId = RequireEvaluatorIdentity(
+                    attractionEvaluator.StableId,
+                    nameof(attractionEvaluator));
+                attractionEvaluatorVersion = RequireEvaluatorIdentity(
+                    attractionEvaluator.Version,
+                    nameof(attractionEvaluator));
+            }
 
             var seenChildren = new HashSet<KLEPExecutableBase>();
             var seenChildIds = new HashSet<string>(StringComparer.Ordinal);
@@ -110,23 +183,195 @@ namespace Roll4d4.Klep.Core
             {
                 child.ClaimGoalOwnership(StableId);
             }
-
-            childRuntimes = new ReadOnlyCollection<KLEPExecutableRuntime>(
-                new List<KLEPExecutableRuntime>());
         }
 
         public IReadOnlyList<KLEPGoalLayer> Layers => layers;
         public KLEPKeyDefinition ActivationKey => activationKey;
-        public int CurrentLayerIndex { get; private set; }
-        public bool IsComplete => CurrentLayerIndex >= layers.Count;
-        public IReadOnlyList<KLEPExecutionResult> LastChildResults => lastChildResults;
+        public string AttractionEvaluatorStableId => attractionEvaluatorStableId;
+        public string AttractionEvaluatorVersion => attractionEvaluatorVersion;
+        internal IReadOnlyList<KLEPExecutableBase> OwnedChildren => ownedChildren;
 
-        internal KLEPGoalRuntimeSnapshot CaptureRuntimeSnapshot()
+        // Goal lifecycle is deliberately sealed away from recipe subclasses.
+        // KLEPExecutableRuntime routes these stages through its owned
+        // KLEPGoalRuntime instead of dispatching callbacks on the recipe.
+        protected sealed override void OnInitialize(
+            KLEPExecutableInitializationContext context)
         {
-            var layerSnapshots = new List<KLEPGoalLayerRuntimeSnapshot>(layers.Count);
-            for (int layerIndex = 0; layerIndex < layers.Count; layerIndex++)
+            throw RuntimeOwnedLifecycle();
+        }
+
+        protected sealed override void OnEnter(KLEPExecutionContext context)
+        {
+            throw RuntimeOwnedLifecycle();
+        }
+
+        protected sealed override KLEPExecutableTickStatus OnTick(
+            KLEPExecutionContext context)
+        {
+            throw RuntimeOwnedLifecycle();
+        }
+
+        protected sealed override void OnExit(KLEPExecutableExitContext context)
+        {
+            throw RuntimeOwnedLifecycle();
+        }
+
+        private protected sealed override KLEPExecutableScoreEvaluation ComposeScore(
+            KLEPKeySnapshot snapshot,
+            KLEPExecutableScoreEvaluation authoredScore)
+        {
+            if (attractionEvaluator == null)
             {
-                KLEPGoalLayer layer = layers[layerIndex];
+                return authoredScore;
+            }
+
+            ValidateEvaluatorIdentity();
+            KLEPGoalAttractionEvaluation evaluation = attractionEvaluator.Evaluate(
+                new KLEPGoalAttractionContext(Definition, snapshot));
+            ValidateEvaluatorIdentity();
+            if (evaluation == null)
+            {
+                throw new InvalidOperationException(
+                    $"Goal attraction evaluator '{attractionEvaluatorStableId}' " +
+                    "returned no evaluation.");
+            }
+
+            return authoredScore.WithGoalIntrinsicAttraction(
+                attractionEvaluatorStableId,
+                attractionEvaluatorVersion,
+                evaluation.Contribution,
+                evaluation.Explanation);
+        }
+
+        private static ReadOnlyCollection<KLEPGoalLayer> CopyLayers(
+            IEnumerable<KLEPGoalLayer> source)
+        {
+            var copy = new List<KLEPGoalLayer>();
+            if (source != null)
+            {
+                foreach (KLEPGoalLayer layer in source)
+                {
+                    copy.Add(layer ?? throw new ArgumentException(
+                        "A Goal cannot contain a null layer.",
+                        nameof(source)));
+                }
+            }
+
+            return new ReadOnlyCollection<KLEPGoalLayer>(copy);
+        }
+
+        private static InvalidOperationException RuntimeOwnedLifecycle()
+        {
+            return new InvalidOperationException(
+                "A Goal recipe cannot drive lifecycle callbacks directly. " +
+                "Its owning Executable runtime must use KLEPGoalRuntime.");
+        }
+
+        private static KLEPExecutableDefinition RequireGoalDefinition(
+            KLEPExecutableDefinition definition)
+        {
+            if (definition == null)
+            {
+                throw new ArgumentNullException(nameof(definition));
+            }
+
+            if (definition.Kind != KLEPExecutableKind.Goal)
+            {
+                throw new ArgumentException(
+                    "KLEPGoal requires an Executable definition whose Kind is Goal.",
+                    nameof(definition));
+            }
+
+            return definition;
+        }
+
+        private static string RequireEvaluatorIdentity(
+            string value,
+            string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException(
+                    "A Goal attraction evaluator requires a non-empty stable ID " +
+                    "and version.",
+                    parameterName);
+            }
+
+            return value;
+        }
+
+        private void ValidateEvaluatorIdentity()
+        {
+            if (!StringComparer.Ordinal.Equals(
+                    attractionEvaluatorStableId,
+                    attractionEvaluator.StableId) ||
+                !StringComparer.Ordinal.Equals(
+                    attractionEvaluatorVersion,
+                    attractionEvaluator.Version))
+            {
+                throw new InvalidOperationException(
+                    $"Goal attraction evaluator '{attractionEvaluatorStableId}' " +
+                    "changed its stable ID or version after Goal construction.");
+            }
+        }
+
+        private static KLEPKeyDefinition ValidateActivationKey(
+            KLEPExecutableDefinition definition,
+            KLEPKeyDefinition activationKey)
+        {
+            if (activationKey == null)
+            {
+                return null;
+            }
+
+            if (!definition.TryGetDeclaredOutput(
+                    activationKey.Id, out KLEPKeyDefinition declared) ||
+                declared.Scope != activationKey.Scope)
+            {
+                throw new ArgumentException(
+                    $"Goal '{definition.StableId}' must declare activation Key " +
+                    $"'{activationKey.Id}' as an output.",
+                    nameof(activationKey));
+            }
+
+            return activationKey;
+        }
+
+    }
+
+    /// <summary>
+    /// Mutable progress for one registered Goal tenure. The authored Goal remains
+    /// immutable while its owning Executable runtime advances this record.
+    /// </summary>
+    internal sealed class KLEPGoalRuntime
+    {
+        private readonly KLEPGoal recipe;
+        private ReadOnlyCollection<KLEPExecutableRuntime> childRuntimes;
+        private readonly HashSet<string> completedChildIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        private ReadOnlyCollection<KLEPExecutionResult> lastChildResults =
+            new ReadOnlyCollection<KLEPExecutionResult>(
+                new List<KLEPExecutionResult>());
+
+        internal KLEPGoalRuntime(KLEPGoal recipe)
+        {
+            this.recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
+            childRuntimes = new ReadOnlyCollection<KLEPExecutableRuntime>(
+                new List<KLEPExecutableRuntime>());
+        }
+
+        internal int CurrentLayerIndex { get; private set; }
+        internal bool IsComplete => CurrentLayerIndex >= recipe.Layers.Count;
+
+        internal KLEPGoalRuntimeSnapshot CaptureSnapshot()
+        {
+            var layerSnapshots = new List<KLEPGoalLayerRuntimeSnapshot>(
+                recipe.Layers.Count);
+            for (int layerIndex = 0;
+                 layerIndex < recipe.Layers.Count;
+                 layerIndex++)
+            {
+                KLEPGoalLayer layer = recipe.Layers[layerIndex];
                 var children = new List<KLEPGoalChildRuntimeSnapshot>(
                     layer.Children.Count);
                 foreach (KLEPExecutableBase child in layer.Children)
@@ -147,25 +392,26 @@ namespace Roll4d4.Klep.Core
             return new KLEPGoalRuntimeSnapshot(
                 CurrentLayerIndex,
                 IsComplete,
-                activationKey == null
+                recipe.ActivationKey == null
                     ? (KLEPKeyId?)null
-                    : activationKey.Id,
+                    : recipe.ActivationKey.Id,
                 layerSnapshots,
                 lastChildResults);
         }
 
-        protected sealed override void OnInitialize(
-            KLEPExecutableInitializationContext context)
+        internal void Initialize(KLEPExecutableInitializationContext context)
         {
             // A new root registration tenure gets fresh child runtime records;
-            // authored ownership stays with this Goal.
-            var freshRuntimes = new List<KLEPExecutableRuntime>(ownedChildren.Count);
-            foreach (KLEPExecutableBase child in ownedChildren)
+            // authored ownership stays with the immutable Goal recipe.
+            var freshRuntimes = new List<KLEPExecutableRuntime>(
+                recipe.OwnedChildren.Count);
+            foreach (KLEPExecutableBase child in recipe.OwnedChildren)
             {
                 freshRuntimes.Add(new KLEPExecutableRuntime(child));
             }
 
-            childRuntimes = new ReadOnlyCollection<KLEPExecutableRuntime>(freshRuntimes);
+            childRuntimes = new ReadOnlyCollection<KLEPExecutableRuntime>(
+                freshRuntimes);
             var results = new List<KLEPExecutionResult>(childRuntimes.Count);
             foreach (KLEPExecutableRuntime child in childRuntimes)
             {
@@ -173,7 +419,7 @@ namespace Roll4d4.Klep.Core
                 try
                 {
                     result = child.Initialize(
-                        StableId, context.Keys, context.WaveIndex);
+                        recipe.StableId, context.Keys, context.WaveIndex);
                 }
                 catch (Exception fault)
                 {
@@ -187,33 +433,32 @@ namespace Roll4d4.Klep.Core
             lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(results);
         }
 
-        protected sealed override void OnEnter(KLEPExecutionContext context)
+        internal void Enter(KLEPExecutionContext context)
         {
             CurrentLayerIndex = 0;
             completedChildIds.Clear();
             lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(
                 new List<KLEPExecutionResult>());
 
-            if (activationKey != null)
+            if (recipe.ActivationKey != null)
             {
-                context.Add(activationKey);
+                context.Add(recipe.ActivationKey);
             }
         }
 
-        protected sealed override KLEPExecutableTickStatus OnTick(
-            KLEPExecutionContext context)
+        internal KLEPExecutableTickStatus Tick(KLEPExecutionContext context)
         {
             foreach (KLEPExecutableRuntime child in childRuntimes)
             {
                 child.Rearm(context.CycleIndex);
             }
 
-            if (CurrentLayerIndex >= layers.Count)
+            if (CurrentLayerIndex >= recipe.Layers.Count)
             {
                 return KLEPExecutableTickStatus.Succeeded;
             }
 
-            KLEPGoalLayer layer = layers[CurrentLayerIndex];
+            KLEPGoalLayer layer = recipe.Layers[CurrentLayerIndex];
             var results = new List<KLEPExecutionResult>();
             bool layerComplete;
             switch (layer.Requirement)
@@ -232,7 +477,7 @@ namespace Roll4d4.Klep.Core
 
                 default:
                     throw new InvalidOperationException(
-                        $"Goal '{StableId}' has an invalid layer requirement.");
+                        $"Goal '{recipe.StableId}' has an invalid layer requirement.");
             }
 
             lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(results);
@@ -242,12 +487,12 @@ namespace Roll4d4.Klep.Core
                 completedChildIds.Clear();
             }
 
-            return CurrentLayerIndex >= layers.Count
+            return CurrentLayerIndex >= recipe.Layers.Count
                 ? KLEPExecutableTickStatus.Succeeded
                 : KLEPExecutableTickStatus.Running;
         }
 
-        protected sealed override void OnExit(KLEPExecutableExitContext context)
+        internal void Exit(KLEPExecutableExitContext context)
         {
             // Successful All/Any completion leaves no running child. If the
             // Goal is interrupted, every active child is unwound exactly once.
@@ -285,7 +530,8 @@ namespace Roll4d4.Klep.Core
 
             if (results.Count > 0)
             {
-                lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(results);
+                lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(
+                    results);
             }
 
             RethrowChildCancellationFaults(faults);
@@ -411,7 +657,8 @@ namespace Roll4d4.Klep.Core
             }
 
             throw new InvalidOperationException(
-                $"Goal '{StableId}' does not own Executable '{executable.StableId}'.");
+                $"Goal '{recipe.StableId}' does not own Executable " +
+                $"'{executable.StableId}'.");
         }
 
         private static void ForwardOutputs(
@@ -432,70 +679,6 @@ namespace Roll4d4.Klep.Core
             {
                 context.ForwardValidated(output);
             }
-        }
-
-        private static ReadOnlyCollection<KLEPGoalLayer> CopyLayers(
-            IEnumerable<KLEPGoalLayer> source)
-        {
-            var copy = new List<KLEPGoalLayer>();
-            if (source != null)
-            {
-                foreach (KLEPGoalLayer layer in source)
-                {
-                    copy.Add(layer ?? throw new ArgumentException(
-                        "A Goal cannot contain a null layer.",
-                        nameof(source)));
-                }
-            }
-
-            return new ReadOnlyCollection<KLEPGoalLayer>(copy);
-        }
-
-        private static KLEPExecutableDefinition RequireGoalDefinition(
-            KLEPExecutableDefinition definition)
-        {
-            if (definition == null)
-            {
-                throw new ArgumentNullException(nameof(definition));
-            }
-
-            if (definition.Kind != KLEPExecutableKind.Goal)
-            {
-                throw new ArgumentException(
-                    "KLEPGoal requires an Executable definition whose Kind is Goal.",
-                    nameof(definition));
-            }
-
-            if (definition.ExecutionMode != KLEPExecutionMode.Solo)
-            {
-                throw new ArgumentException(
-                    "A KLEPGoal is a Solo Executable owned by one Neuron.",
-                    nameof(definition));
-            }
-
-            return definition;
-        }
-
-        private static KLEPKeyDefinition ValidateActivationKey(
-            KLEPExecutableDefinition definition,
-            KLEPKeyDefinition activationKey)
-        {
-            if (activationKey == null)
-            {
-                return null;
-            }
-
-            if (!definition.TryGetDeclaredOutput(
-                    activationKey.Id, out KLEPKeyDefinition declared) ||
-                declared.Scope != activationKey.Scope)
-            {
-                throw new ArgumentException(
-                    $"Goal '{definition.StableId}' must declare activation Key " +
-                    $"'{activationKey.Id}' as an output.",
-                    nameof(activationKey));
-            }
-
-            return activationKey;
         }
 
         private static bool IsCancellationReason(KLEPExecutableExitReason reason)

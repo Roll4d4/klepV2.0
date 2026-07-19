@@ -60,7 +60,18 @@ namespace Roll4d4.Klep.Core
         // behavior subclass cannot mutate runtime state while being ranked.
         internal KLEPExecutableScoreEvaluation EvaluateScore(KLEPKeySnapshot snapshot)
         {
-            return Definition.EvaluateScore(snapshot);
+            KLEPExecutableScoreEvaluation authored = Definition.EvaluateScore(snapshot);
+            return ComposeScore(snapshot, authored);
+        }
+
+        // Only Core-owned executable kinds may extend score composition. This
+        // remains private to derived types in this assembly so project behavior
+        // subclasses cannot mutate themselves while the Neuron is ranking them.
+        private protected virtual KLEPExecutableScoreEvaluation ComposeScore(
+            KLEPKeySnapshot snapshot,
+            KLEPExecutableScoreEvaluation authoredScore)
+        {
+            return authoredScore;
         }
 
         protected virtual void OnInitialize(

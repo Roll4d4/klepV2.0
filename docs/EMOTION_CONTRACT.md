@@ -102,7 +102,7 @@ This Emotion slice is an isolated pure runtime assembly. It does not:
 - select, interrupt, or advance an Executable or Goal;
 - modify Agent Q-values or confidence;
 - persist long-term Memory; or
-- invoke an Observer or Planner.
+- invoke the Observer's structural mapper, projection, or optional deliberation.
 
 Any future behavioral influence must occur only after ordinary eligibility has
 been established and requires an approved selection contract.
@@ -111,12 +111,14 @@ been established and requires an approved selection contract.
 
 - The project-owned context schemas and policy implementations that use the
   portable Ethics evaluation interface.
-- The owner and exact phase that advances Emotion relative to a Neuron Tick.
+- The owner and exact phase that advances Emotion relative to the owning
+  Agent's Tick and its guarded Neuron Local boundary.
 - The host boundary that closes a Memory experience only after the relevant
   causal Executable and produced Emotion consequence are both observable.
 - The desired-region or stabilization policy used to recognize that an Agent
   has remained somewhere it wants to leave.
 - Whether correction ranks eligible Executables, eligible Goals, or another
   higher-cognition proposal type.
-- How competing Emotion, Memory, Planner, Observer, and learned influences are
-  attributed, combined, and explained without changing eligibility.
+- How competing Emotion, Memory, Observer-map/projection, optional Observer
+  deliberation, and learned influences are attributed, combined, and explained
+  without changing eligibility.

@@ -55,11 +55,12 @@ namespace Roll4d4.Klep.Behaviors
         protected override KLEPExecutableTickStatus OnTick(
             KLEPExecutionContext context)
         {
-            if (observation != null)
+            if (observation == null)
             {
-                context.Add(edgeDangerDefinition, observation.ToPayload());
+                return KLEPExecutableTickStatus.Failed;
             }
 
+            context.Add(edgeDangerDefinition, observation.ToPayload());
             return KLEPExecutableTickStatus.Succeeded;
         }
     }

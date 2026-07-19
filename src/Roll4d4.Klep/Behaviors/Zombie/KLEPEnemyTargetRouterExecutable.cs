@@ -12,8 +12,10 @@ namespace Roll4d4.Klep.Behaviors
     }
 
     /// <summary>
-    /// Selects the nearest EnemyDetected occurrence and emits exactly one
-    /// mutually exclusive MoveTarget or AttackTarget fact.
+    /// Selects the nearest EnemyDetected occurrence for one deterministic
+    /// target branch. Successful completion guarantees the definition's one
+    /// declared MoveTarget or AttackTarget output; a non-matching observation
+    /// fails without emitting a target.
     /// </summary>
     public sealed class KLEPEnemyTargetRouterExecutable : KLEPExecutableBase
     {
@@ -54,21 +56,29 @@ namespace Roll4d4.Klep.Behaviors
                     nameof(attackTargetDefinition));
             }
 
-            if (definition.DeclaredOutputs.Count != 2)
+            if (definition.DeclaredOutputs.Count != 1)
             {
                 throw new ArgumentException(
-                    "An enemy target router requires exactly two declared outputs.",
+                    "An enemy target router requires exactly one declared output.",
                     nameof(definition));
             }
 
-            KLEPZombieBehaviorValidation.RequireExactDeclaredOutput(
-                definition,
-                moveTargetDefinition,
-                "MoveTarget");
-            KLEPZombieBehaviorValidation.RequireExactDeclaredOutput(
-                definition,
-                attackTargetDefinition,
-                "AttackTarget");
+            KLEPKeyDefinition declaredOutput = definition.DeclaredOutputs[0];
+            if (ReferenceEquals(declaredOutput, moveTargetDefinition))
+            {
+                ConfiguredRoute = KLEPEnemyTargetRoute.Move;
+            }
+            else if (ReferenceEquals(declaredOutput, attackTargetDefinition))
+            {
+                ConfiguredRoute = KLEPEnemyTargetRoute.Attack;
+            }
+            else
+            {
+                throw new ArgumentException(
+                    "An enemy target router's one declared output must be " +
+                    "the exact MoveTarget or AttackTarget definition instance.",
+                    nameof(definition));
+            }
 
             if (double.IsNaN(attackRange) ||
                 double.IsInfinity(attackRange) ||
@@ -86,6 +96,7 @@ namespace Roll4d4.Klep.Behaviors
         }
 
         public double AttackRange { get; }
+        public KLEPEnemyTargetRoute ConfiguredRoute { get; }
         public KLEPEnemyTargetRoute LastRoute { get; private set; }
         public KLEPEnemyObservation LastTarget { get; private set; }
         public KLEPKeyDefinition EnemyDetectedDefinition =>
@@ -102,7 +113,7 @@ namespace Roll4d4.Klep.Behaviors
             {
                 LastTarget = null;
                 LastRoute = KLEPEnemyTargetRoute.None;
-                return KLEPExecutableTickStatus.Succeeded;
+                return KLEPExecutableTickStatus.Failed;
             }
 
             var entityIds = new HashSet<string>(StringComparer.Ordinal);
@@ -128,17 +139,19 @@ namespace Roll4d4.Klep.Behaviors
             }
 
             LastTarget = selected;
-            KLEPKeyPayload payload = selected.ToPayload();
-            if (selected.Distance <= AttackRange)
+            LastRoute = selected.Distance <= AttackRange
+                ? KLEPEnemyTargetRoute.Attack
+                : KLEPEnemyTargetRoute.Move;
+            if (LastRoute != ConfiguredRoute)
             {
-                LastRoute = KLEPEnemyTargetRoute.Attack;
-                context.Add(attackTargetDefinition, payload);
+                return KLEPExecutableTickStatus.Failed;
             }
-            else
-            {
-                LastRoute = KLEPEnemyTargetRoute.Move;
-                context.Add(moveTargetDefinition, payload);
-            }
+
+            KLEPKeyDefinition output = ConfiguredRoute ==
+                KLEPEnemyTargetRoute.Attack
+                    ? attackTargetDefinition
+                    : moveTargetDefinition;
+            context.Add(output, selected.ToPayload());
 
             return KLEPExecutableTickStatus.Succeeded;
         }

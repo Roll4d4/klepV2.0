@@ -15,6 +15,7 @@ internal static class Program
     private const string GroundSensorId = "sensor.ground";
     private const string EnemySensorId = "sensor.enemy";
     private const string RouterId = "router.enemy-target";
+    private const string AttackRouterId = RouterId + ".attack";
     private const string MoveId = "action.zombie-move";
     private const string AttackId = "action.zombie-attack";
 
@@ -33,6 +34,7 @@ internal static class Program
         VerifyInputAndRegistrationOrderDeterminism();
         VerifyObservationBoundaryValidation();
         VerifyRouterRejectsCorruptSnapshots();
+        VerifyRouterFailsWithoutEnemyEvidence();
         VerifyConstructorShapeValidation();
 
         Console.WriteLine($"KLEP Zombie smoke passed: {assertions} assertions.");
@@ -58,7 +60,12 @@ internal static class Program
                FindStep(decision, EnemySensorId, KLEPExecutableStepKind.Tandem) != null,
             "Both observation Tandems still advance for an empty sample");
         Expect(FindStep(decision, RouterId, KLEPExecutableStepKind.Tandem) == null,
-            "The Ground-and-enemy Router does not advance without observations");
+            "The Ground-and-enemy Move Router does not advance without observations");
+        Expect(FindStep(
+                   decision,
+                   AttackRouterId,
+                   KLEPExecutableStepKind.Tandem) == null,
+            "The Ground-and-enemy Attack Router does not advance without observations");
         Expect(!FindCandidate(decision, MoveId).IsEligible &&
                !FindCandidate(decision, AttackId).IsEligible,
             "Move and Attack are filtered as ineligible before scoring");
@@ -102,6 +109,8 @@ internal static class Program
 
         KLEPExecutableStepTrace routerStep = FindStep(
             decision, RouterId, KLEPExecutableStepKind.Tandem);
+        KLEPExecutableStepTrace attackRouterStep = FindStep(
+            decision, AttackRouterId, KLEPExecutableStepKind.Tandem);
         KLEPExecutableStepTrace moveStep = FindStep(
             decision, MoveId, KLEPExecutableStepKind.Solo);
         Expect(routerStep != null &&
@@ -109,11 +118,17 @@ internal static class Program
                routerStep.Outputs.Count == 1 &&
                routerStep.Outputs[0].KeyId.Value == MoveTargetKeyId,
             "The Router emits exactly one MoveTarget for a far enemy");
+        Expect(attackRouterStep != null &&
+               attackRouterStep.State == KLEPExecutableState.Failed &&
+               attackRouterStep.Outputs.Count == 0,
+            "The non-matching Attack Router fails without emitting a target");
         Expect(moveStep != null && moveStep.State == KLEPExecutableState.Running,
             "Move enters Running during the same Tick as its routed target");
-        Expect(fixture.Router.LastRoute == KLEPEnemyTargetRoute.Move &&
-               fixture.Router.LastTarget.EntityId == enemy.EntityId,
-            "The Router exposes the selected Move target for inspection");
+        Expect(fixture.MoveRouter.LastRoute == KLEPEnemyTargetRoute.Move &&
+               fixture.AttackRouter.LastRoute == KLEPEnemyTargetRoute.Move &&
+               fixture.MoveRouter.LastTarget.EntityId == enemy.EntityId &&
+               fixture.AttackRouter.LastTarget.EntityId == enemy.EntityId,
+            "Both branch Routers expose the same selected Move target for inspection");
 
         Expect(fixture.Move.TryGetIntent(
                    decision.CycleIndex,
@@ -174,6 +189,10 @@ internal static class Program
             attacking, MoveId, KLEPExecutableStepKind.Cancellation);
         KLEPExecutableStepTrace attackStep = FindStep(
             attacking, AttackId, KLEPExecutableStepKind.Solo);
+        KLEPExecutableStepTrace moveRouterStep = FindStep(
+            attacking, RouterId, KLEPExecutableStepKind.Tandem);
+        KLEPExecutableStepTrace attackRouterStep = FindStep(
+            attacking, AttackRouterId, KLEPExecutableStepKind.Tandem);
         Expect(moveCancellation != null &&
                moveCancellation.State == KLEPExecutableState.Cancelled &&
                moveCancellation.ExitReason == KLEPExecutableExitReason.LocksClosed,
@@ -182,9 +201,23 @@ internal static class Program
                attackStep.State == KLEPExecutableState.Succeeded &&
                attackStep.ExitReason == KLEPExecutableExitReason.Succeeded,
             "Attack enters, advances, exits, and succeeds in the switch Tick");
-        Expect(fixture.Router.LastRoute == KLEPEnemyTargetRoute.Attack &&
-               fixture.Router.LastTarget.EntityId == near.EntityId,
-            "The Router exposes the near Attack branch");
+        Expect(moveRouterStep != null &&
+               moveRouterStep.State == KLEPExecutableState.Failed &&
+               moveRouterStep.Outputs.Count == 0 &&
+               attackRouterStep != null &&
+               attackRouterStep.State == KLEPExecutableState.Succeeded &&
+               attackRouterStep.Outputs.Count == 1 &&
+               attackRouterStep.Outputs[0].KeyId.Value == AttackTargetKeyId,
+            "Only the matching Attack Router completes and guarantees its target");
+        Expect(fixture.MoveRouter.LastRoute == KLEPEnemyTargetRoute.Attack &&
+               fixture.AttackRouter.LastRoute == KLEPEnemyTargetRoute.Attack &&
+               fixture.MoveRouter.LastTarget.EntityId == near.EntityId &&
+               fixture.AttackRouter.LastTarget.EntityId == near.EntityId,
+            "Both branch Routers expose the same near Attack target");
+        Expect(GetOnlyFact(
+                   attacking.KeySnapshot,
+                   fixture.AttackTarget.Id).SourceId == AttackRouterId,
+            "AttackTarget provenance identifies the successful Attack Router");
         Expect(fixture.Attack.TryGetIntent(
                    attacking.CycleIndex,
                    out KLEPEnemyObservation attackIntent) &&
@@ -216,7 +249,12 @@ internal static class Program
                !airborne.KeySnapshot.Contains(AttackTargetKeyId),
             "The Ground-and-enemy Router emits no action target while airborne");
         Expect(FindStep(airborne, RouterId, KLEPExecutableStepKind.Tandem) == null,
-            "Ground loss prevents the Router itself from advancing");
+            "Ground loss prevents the Move Router itself from advancing");
+        Expect(FindStep(
+                   airborne,
+                   AttackRouterId,
+                   KLEPExecutableStepKind.Tandem) == null,
+            "Ground loss prevents the Attack Router itself from advancing");
         Expect(airborne.IsPatient &&
                airborne.SelectedExecutableId == null &&
                airborne.CurrentSoloExecutableId == null,
@@ -285,9 +323,11 @@ internal static class Program
             Observation("enemy.alpha", 6d));
         KLEPDecisionTrace nearest = fixture.Agent.Tick().Decision;
 
-        Expect(fixture.Router.LastTarget.EntityId == "enemy.nearest" &&
-               fixture.Router.LastTarget.Distance == 3d,
-            "The Router selects the strictly nearest observed enemy");
+        Expect(fixture.MoveRouter.LastTarget.EntityId == "enemy.nearest" &&
+               fixture.MoveRouter.LastTarget.Distance == 3d &&
+               fixture.AttackRouter.LastTarget.EntityId == "enemy.nearest" &&
+               fixture.AttackRouter.LastTarget.Distance == 3d,
+            "Both branch Routers select the strictly nearest observed enemy");
         Expect(fixture.Move.LastTarget.EntityId == "enemy.nearest",
             "Move consumes the Router's nearest target");
         Expect(ReadObservation(GetOnlyFact(
@@ -308,9 +348,11 @@ internal static class Program
             Observation("enemy.other", 7d));
         KLEPDecisionTrace tied = fixture.Agent.Tick().Decision;
 
-        Expect(fixture.Router.LastTarget.EntityId == "enemy.alpha" &&
-               fixture.Router.LastTarget.Distance == 4d,
-            "Equal-distance targets break ties by ordinal entity ID");
+        Expect(fixture.MoveRouter.LastTarget.EntityId == "enemy.alpha" &&
+               fixture.MoveRouter.LastTarget.Distance == 4d &&
+               fixture.AttackRouter.LastTarget.EntityId == "enemy.alpha" &&
+               fixture.AttackRouter.LastTarget.Distance == 4d,
+            "Both branch Routers break equal-distance ties by ordinal entity ID");
         Expect(fixture.Move.LastTarget.EntityId == "enemy.alpha" &&
                tied.CurrentSoloExecutableId == MoveId,
             "The Running Move consumes the deterministic tie winner");
@@ -439,7 +481,7 @@ internal static class Program
             malformed);
         var malformedRouter = new KLEPEnemyTargetRouterExecutable(
             MakeRouterDefinition(
-                "router.raw-malformed", null, enemy, move, attack, false),
+                "router.raw-malformed", null, enemy, move, false),
             enemy,
             move,
             attack,
@@ -447,8 +489,9 @@ internal static class Program
         var malformedNeuron = new KLEPNeuron("neuron.zombie.malformed");
         malformedNeuron.RegisterExecutable(malformedRouter);
         malformedNeuron.RegisterExecutable(malformedEmitter);
+        var malformedAgent = new KLEPAgent(malformedNeuron);
         ExpectThrowsMessage<InvalidOperationException>(
-            () => malformedNeuron.Tick(),
+            () => malformedAgent.Tick(),
             "enemy observation payload requires",
             "The Router defensively rejects a malformed EnemyDetected fact");
 
@@ -461,7 +504,7 @@ internal static class Program
             duplicate);
         var duplicateRouter = new KLEPEnemyTargetRouterExecutable(
             MakeRouterDefinition(
-                "router.raw-duplicate", null, enemy, move, attack, false),
+                "router.raw-duplicate", null, enemy, move, false),
             enemy,
             move,
             attack,
@@ -469,10 +512,47 @@ internal static class Program
         var duplicateNeuron = new KLEPNeuron("neuron.zombie.duplicate-snapshot");
         duplicateNeuron.RegisterExecutable(duplicateRouter);
         duplicateNeuron.RegisterExecutable(duplicateEmitter);
+        var duplicateAgent = new KLEPAgent(duplicateNeuron);
         ExpectThrowsMessage<InvalidOperationException>(
-            () => duplicateNeuron.Tick(),
+            () => duplicateAgent.Tick(),
             "more than one EnemyDetected occurrence",
             "The Router defensively rejects duplicate entity occurrences in a snapshot");
+    }
+
+    private static void VerifyRouterFailsWithoutEnemyEvidence()
+    {
+        KLEPKeyDefinition enemy = MakeOneCycleKey(
+            EnemyDetectedKeyId, "EnemyDetected");
+        KLEPKeyDefinition move = MakeOneCycleKey(
+            MoveTargetKeyId, "MoveTarget");
+        KLEPKeyDefinition attack = MakeOneCycleKey(
+            AttackTargetKeyId, "AttackTarget");
+        var router = new KLEPEnemyTargetRouterExecutable(
+            new KLEPExecutableDefinition(
+                "router.no-enemy",
+                "Always-sampled Move Router",
+                KLEPExecutableKind.Router,
+                executionMode: KLEPExecutionMode.Tandem,
+                declaredOutputs: new[] { move }),
+            enemy,
+            move,
+            attack,
+            AttackRange);
+        var neuron = new KLEPNeuron("neuron.zombie.no-enemy-router");
+        neuron.RegisterExecutable(router);
+
+        KLEPDecisionTrace trace = new KLEPAgent(neuron).Tick().Decision;
+        KLEPExecutableStepTrace step = FindStep(
+            trace,
+            router.StableId,
+            KLEPExecutableStepKind.Tandem);
+        Expect(step != null &&
+               step.State == KLEPExecutableState.Failed &&
+               step.Outputs.Count == 0,
+            "An advancing branch Router fails without EnemyDetected evidence");
+        Expect(router.LastRoute == KLEPEnemyTargetRoute.None &&
+               router.LastTarget == null,
+            "A no-enemy failure clears the Router's route and target diagnostics");
     }
 
     private static void VerifyConstructorShapeValidation()
@@ -572,13 +652,20 @@ internal static class Program
             "Enemy Sensor rejects a Global EnemyDetected output");
 
         KLEPExecutableDefinition routerDefinition = MakeRouterDefinition(
-            "router.shape", ground, enemy, move, attack, true);
+            "router.shape", ground, enemy, move, true);
         var validRouter = new KLEPEnemyTargetRouterExecutable(
             routerDefinition, enemy, move, attack, AttackRange);
         Expect(validRouter.Kind == KLEPExecutableKind.Router &&
                validRouter.ExecutionMode == KLEPExecutionMode.Tandem &&
-               validRouter.AttackRange == AttackRange,
-            "The valid Target Router shape and range are inspectable");
+               validRouter.AttackRange == AttackRange &&
+               validRouter.ConfiguredRoute == KLEPEnemyTargetRoute.Move,
+            "The valid Move Router shape, range, and branch are inspectable");
+        KLEPExecutableDefinition attackRouterDefinition = MakeRouterDefinition(
+            "router.shape.attack", ground, enemy, attack, true);
+        var validAttackRouter = new KLEPEnemyTargetRouterExecutable(
+            attackRouterDefinition, enemy, move, attack, AttackRange);
+        Expect(validAttackRouter.ConfiguredRoute == KLEPEnemyTargetRoute.Attack,
+            "The exact AttackTarget declaration configures the Attack branch");
         ExpectThrows<ArgumentNullException>(
             () => new KLEPEnemyTargetRouterExecutable(
                 null, enemy, move, attack, AttackRange),
@@ -590,7 +677,7 @@ internal static class Program
                     "Wrong Kind",
                     KLEPExecutableKind.Sensor,
                     executionMode: KLEPExecutionMode.Tandem,
-                    declaredOutputs: new[] { move, attack }),
+                    declaredOutputs: new[] { move }),
                 enemy, move, attack, AttackRange),
             "Target Router rejects the wrong Executable kind");
         ExpectThrows<ArgumentException>(
@@ -600,7 +687,7 @@ internal static class Program
                     "Wrong Mode",
                     KLEPExecutableKind.Router,
                     executionMode: KLEPExecutionMode.Solo,
-                    declaredOutputs: new[] { move, attack }),
+                    declaredOutputs: new[] { move }),
                 enemy, move, attack, AttackRange),
             "Target Router rejects Solo mode");
         ExpectThrows<ArgumentNullException>(
@@ -624,6 +711,26 @@ internal static class Program
                     executionMode: KLEPExecutionMode.Tandem),
                 enemy, move, attack, AttackRange),
             "Target Router rejects an empty output declaration");
+        ExpectThrows<ArgumentException>(
+            () => new KLEPEnemyTargetRouterExecutable(
+                new KLEPExecutableDefinition(
+                    "router.two-outputs",
+                    "Two Outputs",
+                    KLEPExecutableKind.Router,
+                    executionMode: KLEPExecutionMode.Tandem,
+                    declaredOutputs: new[] { move, attack }),
+                enemy, move, attack, AttackRange),
+            "Target Router rejects more than one declared output");
+        ExpectThrows<ArgumentException>(
+            () => new KLEPEnemyTargetRouterExecutable(
+                new KLEPExecutableDefinition(
+                    "router.unrelated-output",
+                    "Unrelated Output",
+                    KLEPExecutableKind.Router,
+                    executionMode: KLEPExecutionMode.Tandem,
+                    declaredOutputs: new[] { enemy }),
+                enemy, move, attack, AttackRange),
+            "Target Router rejects a declaration other than its exact branch output");
 
         KLEPKeyDefinition moveTwin = MakeOneCycleKey(
             MoveTargetKeyId, "MoveTarget Twin");
@@ -631,6 +738,16 @@ internal static class Program
             () => new KLEPEnemyTargetRouterExecutable(
                 routerDefinition, enemy, moveTwin, attack, AttackRange),
             "Target Router requires the exact declared MoveTarget instance");
+        KLEPKeyDefinition attackTwin = MakeOneCycleKey(
+            AttackTargetKeyId, "AttackTarget Twin");
+        ExpectThrows<ArgumentException>(
+            () => new KLEPEnemyTargetRouterExecutable(
+                attackRouterDefinition,
+                enemy,
+                move,
+                attackTwin,
+                AttackRange),
+            "Target Router requires the exact declared AttackTarget instance");
         ExpectThrows<ArgumentException>(
             () => new KLEPEnemyTargetRouterExecutable(
                 new KLEPExecutableDefinition(
@@ -668,7 +785,7 @@ internal static class Program
                     "Persistent",
                     KLEPExecutableKind.Router,
                     executionMode: KLEPExecutionMode.Tandem,
-                    declaredOutputs: new[] { persistentMove, attack }),
+                    declaredOutputs: new[] { persistentMove }),
                 enemy, persistentMove, attack, AttackRange),
             "Target Router rejects a Persistent target output");
 
@@ -719,7 +836,8 @@ internal static class Program
             attackDefinition, attack);
         Expect(validAttack.Kind == KLEPExecutableKind.Action &&
                validAttack.ExecutionMode == KLEPExecutionMode.Solo &&
-               ReferenceEquals(validAttack.AttackTargetDefinition, attack),
+               ReferenceEquals(validAttack.AttackTargetDefinition, attack) &&
+               validAttack.DeclaredOutputs.Count == 0,
             "The valid Attack shape is explicit and inspectable");
         ExpectThrows<ArgumentNullException>(
             () => new KLEPZombieAttackExecutable(null, attack),
@@ -745,6 +863,16 @@ internal static class Program
                     executionMode: KLEPExecutionMode.Tandem),
                 attack),
             "Attack rejects Tandem mode");
+        ExpectThrows<ArgumentException>(
+            () => new KLEPZombieAttackExecutable(
+                new KLEPExecutableDefinition(
+                    "attack.declared-output",
+                    "Attack With Impossible Key Promise",
+                    KLEPExecutableKind.Action,
+                    executionMode: KLEPExecutionMode.Solo,
+                    declaredOutputs: new[] { move }),
+                attack),
+            "Attack rejects Key outputs that its host-effect success cannot emit");
         ExpectThrows<ArgumentException>(
             () => new KLEPZombieAttackExecutable(
                 attackDefinition,
@@ -849,8 +977,7 @@ internal static class Program
         string stableId,
         KLEPKeyDefinition ground,
         KLEPKeyDefinition enemy,
-        KLEPKeyDefinition move,
-        KLEPKeyDefinition attack,
+        KLEPKeyDefinition declaredOutput,
         bool requireGround)
     {
         KLEPLockExpression expression = requireGround
@@ -870,7 +997,7 @@ internal static class Program
                     expression)
             },
             executionMode: KLEPExecutionMode.Tandem,
-            declaredOutputs: new[] { move, attack });
+            declaredOutputs: new[] { declaredOutput });
     }
 
     private static KLEPExecutableDefinition MakeMoveDefinition(
@@ -1183,12 +1310,22 @@ internal static class Program
             EnemySensor = new KLEPEnemyObservationSensorExecutable(
                 MakeEnemySensorDefinition(EnemySensorId, EnemyDetected),
                 EnemyDetected);
-            Router = new KLEPEnemyTargetRouterExecutable(
+            MoveRouter = new KLEPEnemyTargetRouterExecutable(
                 MakeRouterDefinition(
                     RouterId,
                     Ground,
                     EnemyDetected,
                     MoveTarget,
+                    true),
+                EnemyDetected,
+                MoveTarget,
+                AttackTarget,
+                AttackRange);
+            AttackRouter = new KLEPEnemyTargetRouterExecutable(
+                MakeRouterDefinition(
+                    AttackRouterId,
+                    Ground,
+                    EnemyDetected,
                     AttackTarget,
                     true),
                 EnemyDetected,
@@ -1207,7 +1344,8 @@ internal static class Program
             {
                 GroundSensor,
                 EnemySensor,
-                Router,
+                MoveRouter,
+                AttackRouter,
                 Move,
                 Attack
             };
@@ -1230,7 +1368,8 @@ internal static class Program
         internal KLEPKeyDefinition AttackTarget { get; }
         internal KLEPObservedKeySensorExecutable GroundSensor { get; }
         internal KLEPEnemyObservationSensorExecutable EnemySensor { get; }
-        internal KLEPEnemyTargetRouterExecutable Router { get; }
+        internal KLEPEnemyTargetRouterExecutable MoveRouter { get; }
+        internal KLEPEnemyTargetRouterExecutable AttackRouter { get; }
         internal KLEPZombieMoveExecutable Move { get; }
         internal KLEPZombieAttackExecutable Attack { get; }
         internal KLEPNeuron Neuron { get; }

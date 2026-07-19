@@ -10,7 +10,9 @@ namespace Roll4d4.Klep.Observer
     /// chooses one currently possible holistic direction, and returns one-use
     /// polish. It never executes behavior or mutates KLEP state.
     /// </summary>
-    public sealed class KLEPObserver : IKLEPGuidanceObserver
+    public sealed class KLEPObserver :
+        IKLEPGuidanceObserver,
+        IKLEPExecutableStructuralObserver
     {
         private static readonly StringComparer IdComparer = StringComparer.Ordinal;
         private readonly ReadOnlyCollection<IKLEPObserverEvidenceSource> sources;
@@ -206,6 +208,13 @@ namespace Roll4d4.Klep.Observer
             {
                 isObserving = false;
             }
+        }
+
+        public KLEPExecutableStructuralMap ObserveStructure(
+            KLEPExecutableCatalogSnapshot snapshot)
+        {
+            return KLEPExecutableStructuralMapper.Build(
+                snapshot ?? throw new ArgumentNullException(nameof(snapshot)));
         }
 
         private static List<KLEPExecutableDefinition> CollectEligibleTargets(

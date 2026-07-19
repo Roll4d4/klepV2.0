@@ -6,7 +6,7 @@ namespace Roll4d4.Klep.Core
     /// Immutable parameters for the first tabular Agent-confidence model.
     /// Confidence and the guidance request are diagnostic. Optional Observer
     /// advice is a separate one-use influence boundary. ActionCertaintyThreshold
-    /// is ordinary authored Neuron arbitration configuration, not learned bias.
+    /// is ordinary authored Agent arbitration configuration, not learned bias.
     /// </summary>
     public sealed class KLEPAgentConfiguration
     {

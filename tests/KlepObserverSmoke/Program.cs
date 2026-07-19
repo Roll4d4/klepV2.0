@@ -24,6 +24,7 @@ internal static class Program
         VerifyObserverInputsAndOutputsAreImmutable();
         VerifyEquivalentRunsAreDeterministic();
         VerifyEligibleGoalCanWinOverAction();
+        VerifyGoalIntrinsicAttractionPrecedesObserverPolish();
         VerifyBlockedTargetIsHiddenAndCannotBeTargeted();
         VerifyZeroAndNegativeDirectionsAbstain();
         VerifySourceRegistrationOrderIsDeterministic();
@@ -336,7 +337,9 @@ internal static class Program
             new[] { "observer.closed.lock" },
             float.MaxValue);
 
-        KLEPDecisionTrace trace = neuron.Tick(0f, advice);
+        var agent = new KLEPAgent(neuron);
+        KLEPDecisionTrace trace =
+            agent.TickWithPreparedGuidance(advice).Decision;
 
         Expect(trace.GuidanceAdvice.Kind ==
                    KLEPGuidanceAdviceApplicationKind.TargetIneligible &&
@@ -755,6 +758,149 @@ internal static class Program
             "Observer trace keeps eligible root Goals and Actions as distinct target kinds");
     }
 
+    private static void VerifyGoalIntrinsicAttractionPrecedesObserverPolish()
+    {
+        var evaluator = new ProbeGoalAttractionEvaluator(
+            "observer.goal-attraction.policy",
+            "v2",
+            context => new KLEPGoalAttractionEvaluation(
+                3f,
+                "project need"));
+        var goal = new KLEPGoal(
+            Definition(
+                "observer.goal-attraction.goal",
+                1f,
+                kind: KLEPExecutableKind.Goal),
+            null,
+            null,
+            evaluator);
+        var action = new ProbeExecutable(
+            Definition("observer.goal-attraction.action", 2f),
+            KLEPExecutableTickStatus.Succeeded);
+        var source = new StaticEvidenceSource(
+            "observer.goal-attraction.evidence",
+            new KLEPObserverEvidence(
+                goal.StableId,
+                1f,
+                "polish the supported goal"));
+        var observer = new KLEPObserver(
+            "observer.goal-attraction",
+            "1",
+            new[] { source },
+            new KLEPObserverConfiguration(polishAmount: 2f));
+        var neuron = new KLEPNeuron("observer.goal-attraction.neuron");
+        neuron.RegisterExecutable(action);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(
+            neuron,
+            configuration: null,
+            guidanceObserver: observer);
+
+        KLEPAgentTickTrace requesting = agent.Tick();
+        CandidateEvaluation requestingGoal = FindCandidate(
+            requesting.Decision,
+            goal.StableId);
+        Expect(requestingGoal.ScoreEvaluation.Total == 4f &&
+               requestingGoal.ScoreEvaluation.Components.Count == 2 &&
+               requestingGoal.ScoreEvaluation.Components[1].Kind ==
+                   KLEPExecutableScoreComponentKind.GoalIntrinsicAttraction &&
+               !HasObserverComponent(
+                   requesting.Decision,
+                   goal.StableId,
+                   observer.StableId,
+                   2f),
+            "the requesting Tick contains intrinsic Goal attraction but no premature Observer component");
+        Expect(evaluator.EvaluationCount == 1 &&
+               agent.PendingGuidanceAdvice != null &&
+               agent.PendingGuidanceAdvice.TargetExecutableId == goal.StableId,
+            "Observer consultation does not reevaluate Goal attraction while preparing next-Tick advice");
+
+        KLEPAgentTickTrace influenced = agent.Tick();
+        CandidateEvaluation influencedGoal = FindCandidate(
+            influenced.Decision,
+            goal.StableId);
+        int intrinsicCount = 0;
+        int observerCount = 0;
+        foreach (KLEPExecutableScoreComponent component in
+                 influencedGoal.ScoreEvaluation.Components)
+        {
+            if (component.Kind ==
+                KLEPExecutableScoreComponentKind.GoalIntrinsicAttraction)
+            {
+                intrinsicCount++;
+            }
+            else if (component.Kind ==
+                     KLEPExecutableScoreComponentKind.ObserverInfluence)
+            {
+                observerCount++;
+            }
+        }
+
+        Expect(influenced.Decision.GuidanceAdvice != null &&
+               influenced.Decision.GuidanceAdvice.WasApplied &&
+               influenced.Decision.GuidanceAdvice.PreObserverScore == 4f &&
+               influenced.Decision.GuidanceAdvice.AuthoredScore == 4f &&
+               influenced.Decision.GuidanceAdvice.EffectiveScore == 6f,
+            "Observer application reports the complete pre-Observer Goal score and the polished total");
+        Expect(evaluator.EvaluationCount == 2 &&
+               influencedGoal.ScoreEvaluation.Total == 6f &&
+               influencedGoal.ScoreEvaluation.Components.Count == 3 &&
+               intrinsicCount == 1 &&
+               observerCount == 1 &&
+               influencedGoal.ScoreEvaluation.Components[2].Kind ==
+                   KLEPExecutableScoreComponentKind.ObserverInfluence,
+            "Observer influence is appended exactly once after exactly one intrinsic evaluation for that Tick");
+
+        KLEPKeyDefinition missing = Key(
+            "observer.goal-attraction.blocked-key");
+        var blockedEvaluator = new ProbeGoalAttractionEvaluator(
+            "observer.goal-attraction.blocked-policy",
+            "1",
+            context => new KLEPGoalAttractionEvaluation(100f));
+        var blockedGoal = new KLEPGoal(
+            Definition(
+                "observer.goal-attraction.blocked",
+                1f,
+                kind: KLEPExecutableKind.Goal,
+                validationLocks: new[]
+                {
+                    Lock(
+                        "observer.goal-attraction.blocked-lock",
+                        missing)
+                }),
+            null,
+            null,
+            blockedEvaluator);
+        var available = new ProbeExecutable(
+            Definition("observer.goal-attraction.available", 1f),
+            KLEPExecutableTickStatus.Succeeded);
+        var eligibleSource = new StaticEvidenceSource(
+            "observer.goal-attraction.available-evidence",
+            new KLEPObserverEvidence(available.StableId, 1f));
+        var blockedObserver = new KLEPObserver(
+            "observer.goal-attraction.blocked-observer",
+            "1",
+            new[] { eligibleSource });
+        var blockedNeuron = new KLEPNeuron(
+            "observer.goal-attraction.blocked-neuron");
+        blockedNeuron.RegisterExecutable(blockedGoal);
+        blockedNeuron.RegisterExecutable(available);
+        var blockedAgent = new KLEPAgent(
+            blockedNeuron,
+            configuration: null,
+            guidanceObserver: blockedObserver);
+
+        KLEPAgentTickTrace blockedTrace = blockedAgent.Tick();
+        Expect(blockedEvaluator.EvaluationCount == 0 &&
+               FindCandidate(
+                   blockedTrace.Decision,
+                   blockedGoal.StableId).ScoreEvaluation == null &&
+               blockedObserver.LastTrace.Targets.Count == 1 &&
+               blockedObserver.LastTrace.Targets[0].ExecutableStableId ==
+                   available.StableId,
+            "an ineligible Goal invokes neither intrinsic policy nor Observer evidence targeting");
+    }
+
     private static void VerifyBlockedTargetIsHiddenAndCannotBeTargeted()
     {
         KLEPKeyDefinition missing = Key("observer.hidden.missing");
@@ -939,7 +1085,9 @@ internal static class Program
             Array.Empty<string>(),
             10f);
 
-        KLEPDecisionTrace trace = neuron.Tick(0f, advice);
+        var agent = new KLEPAgent(neuron);
+        KLEPDecisionTrace trace =
+            agent.TickWithPreparedGuidance(advice).Decision;
 
         Expect(trace.GuidanceAdvice != null &&
                trace.GuidanceAdvice.Kind ==
@@ -1364,6 +1512,36 @@ internal static class Program
 
             LastEligibleTargetIds = ids.ToArray();
             return evidence;
+        }
+    }
+
+    private sealed class ProbeGoalAttractionEvaluator :
+        IKLEPGoalAttractionEvaluator
+    {
+        private readonly Func<KLEPGoalAttractionContext,
+            KLEPGoalAttractionEvaluation> evaluate;
+
+        internal ProbeGoalAttractionEvaluator(
+            string stableId,
+            string version,
+            Func<KLEPGoalAttractionContext,
+                KLEPGoalAttractionEvaluation> evaluate)
+        {
+            StableId = stableId;
+            Version = version;
+            this.evaluate = evaluate ??
+                throw new ArgumentNullException(nameof(evaluate));
+        }
+
+        public string StableId { get; }
+        public string Version { get; }
+        public int EvaluationCount { get; private set; }
+
+        public KLEPGoalAttractionEvaluation Evaluate(
+            KLEPGoalAttractionContext context)
+        {
+            EvaluationCount++;
+            return evaluate(context);
         }
     }
 

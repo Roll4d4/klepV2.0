@@ -24,7 +24,7 @@ KLEP uses cognition-inspired names for optional, bounded mechanisms:
 | Ethics | Project-authored, ordered contextual rules producing traced influence on two designer-named axes | A universal moral system, moral truth, or ethical reasoning |
 | Emotion | A bounded two-axis state with velocity, accumulated influence, friction, and immutable snapshots | Felt experience, affective science validity, or human emotion |
 | Memory | Deterministic episode association, repetition, heat, retention, detail fading, and pure recall scoring | Autobiographical consciousness, conjecture, or current world truth |
-| Observer | Read-only evidence sources contributing explained numeric influence to already-eligible root behaviors | A planner, world model, or authority to bypass Locks |
+| Observer | Read-only structural mapping plus project seams for complete candidate-state projection and explained influence on already-eligible roots | A built-in planner, authoritative world model, or authority to bypass Locks |
 | Agent learning | A tabular semi-Markov temporal-difference update over a symbolic state signature and root action ID | General learning, transfer learning, model learning, or planning |
 
 The repository sometimes groups these modules under “higher cognition.” Here
@@ -38,25 +38,25 @@ The runtime targets `netstandard2.1` and has no third-party runtime dependency.
 The repository includes 13 dependency-free console suites. CI builds the
 solution and executes every suite through [`scripts/Test-All.ps1`](../scripts/Test-All.ps1).
 
-The current total is **4,163 assertion executions**, not 4,163 distinct tests,
+The current total is **4,405 assertion executions**, not 4,405 distinct tests,
 independently specified requirements, or externally reviewed cases:
 
 | Executable suite | Assertion executions |
 |---|---:|
-| `KlepAgentSmoke` | 74 |
+| `KlepAgentSmoke` | 155 |
 | `KlepBehaviorSmoke` | 52 |
 | `KlepCognitionSmoke` | 34 |
 | `KlepEmotionSmoke` | 43 |
 | `KlepEthicsSmoke` | 34 |
-| `KlepExecutableSmoke` | 344 |
+| `KlepExecutableSmoke` | 376 |
 | `KlepKeySmoke` | 848 |
 | `KlepLockSmoke` | 113 |
 | `KlepMemorySmoke` | 75 |
-| `KlepObserverSmoke` | 78 |
-| `KlepPlayerInputSmoke` | 136 |
-| `KlepZombieGoalSmoke` | 2,203 |
-| `KlepZombieSmoke` | 129 |
-| **Total** | **4,163** |
+| `KlepObserverSmoke` | 83 |
+| `KlepPlayerInputSmoke` | 245 |
+| `KlepZombieGoalSmoke` | 2,206 |
+| `KlepZombieSmoke` | 141 |
+| **Total** | **4,405** |
 
 Some assertions execute repeatedly inside scenario loops. The suites were
 written with the implementation and its project-owned contracts. They are
@@ -135,7 +135,7 @@ project author or independently.
 
 ## Preview and adoption boundary
 
-`2.0.0-preview.1` is auditable preview source, not a promise of a stable
+`2.0.0-preview.2` (public milestone **Preview 0.1.1**) is auditable preview source, not a promise of a stable
 production dependency. The standalone project deliberately sets
 `IsPackable=false`; this repository is not currently a NuGet distribution. The
 runtime library targets `netstandard2.1`, while reproducing the current contract

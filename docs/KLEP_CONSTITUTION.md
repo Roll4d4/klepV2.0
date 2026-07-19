@@ -20,14 +20,19 @@ influence must be inspectable.
 
 The protected KLEP vocabulary is:
 
-- Neurons own one deterministic decision cycle;
+- Neurons are passive, guarded stores of Keys and an immutable-rooted
+  Executable catalog;
+- exactly one Agent owns each Neuron's deterministic decision/fire cycle,
+  Executable runtimes, Goal progress, and decision traces;
 - Keys are symbolic perceived or internally produced facts;
 - Locks are pure conditions over an immutable Key snapshot;
-- Executables are eligible, scored, selected, and advanced through an explicit
-  lifecycle;
-- Goals are Executables with explicitly contracted child behavior; and
-- Observer or higher-cognition systems may rank only behavior that ordinary
-  Locks already made eligible.
+- Executables declare guaranteed successful outputs and are evaluated and
+  advanced by the Agent through an explicit lifecycle;
+- Goals are Solo or Tandem Executables with immutable authored child recipes
+  and Agent-owned runtime progress; and
+- Observer or higher-cognition systems validate and map the Executable graph,
+  project possibilities, and may rank only behavior that ordinary Locks already
+  made eligible; the Agent alone decides and fires.
 
 These concepts may not be renamed, merged, split, or assigned new meaning by an
 implementation convenience. A semantic change requires an accepted decision,
@@ -43,8 +48,10 @@ KLEP keeps three categories separate:
 3. learning, recall, planning, or imagination may propose direction.
 
 A proposal is not world truth. Memory cannot manufacture a current Key, and
-Observer advice cannot open a Lock. Admission or execution of model-invented
-definitions and capabilities remains outside the current approved contracts.
+an Observer map or projection cannot open a Lock. The Agent evaluates actual
+Lock truth from the Neuron's immutable snapshot before influence. Admission or
+execution of model-invented definitions and capabilities remains outside the
+current approved contracts.
 
 ## Determinism and time
 
@@ -53,7 +60,7 @@ and random seed, Core behavior must be reproducible. KLEP therefore requires:
 
 - immutable evaluation snapshots;
 - stable ordinal ordering where authored order does not govern;
-- one declared Core Tick path per Neuron;
+- one exclusive `KLEPAgent.Tick` decision/fire path per Neuron;
 - injectable or caller-owned time and randomness; and
 - an explicit owner for cross-Neuron or Global boundaries.
 
@@ -66,6 +73,37 @@ Lock eligibility is absolute. Scoring, learning, Emotion, Memory, Ethics,
 Observer, Planner, or any future learned model may compare or rank only the
 currently eligible set. No influence may make an invalid behavior eligible or
 silently rewrite the facts on which eligibility was evaluated.
+
+Tandems are automatic rather than ranked. An eligible Tandem, including an
+eligible Tandem Goal, may advance through deterministic settlement; Observer
+influence neither scores nor orders it. A Solo Goal may receive only finite,
+inspectable influence after its Locks pass.
+
+## Catalog truth and projected satisfaction
+
+Every Neuron catalog has a revision. On revision change, or on an explicit
+Agent request, the Observer validates and maps the complete immutable recursive
+graph of roots and Goal-owned descendants. Guaranteed `DeclaredOutputs` supply
+authored successful-run emission relations, not proof of final persistence,
+removal, or coexistence. The map is evidence for the Agent, not a command and
+not a claim that current Locks are open.
+
+KLEP's default comparison of projected benefit remains designer-owned and
+inspectable. A desire is an immutable desired Key/Lock expression with a finite
+weight and optional finite pressure. For an already-eligible Solo candidate, an
+optional Observer may supply a complete provenance-bearing Key-presence state
+at successful-run completion. The baseline abstains with zero influence when
+that state is unknown. For a complete projection, the default contribution is
+the checked sum of:
+
+```text
+weight * pressure * (projectedTruth - currentTruth)
+```
+
+where each truth is `0` or `1` and omitted pressure is `1`. Unit weights and
+pressures therefore reproduce the net change in the count of satisfied desires.
+Core does not assign universal meanings or weights to hunger, safety, happiness,
+ethics, or any other project concept.
 
 ## Causality and inspectability
 
@@ -90,8 +128,10 @@ definitions; mutable runtime state belongs to per-Agent or explicitly shared
 runtime owners.
 
 Subsystem ownership is explicit. Memory, Emotion, Agent learning, Key stores,
-Executable lifecycle, and future Planner state are not ambient globals and do
-not become one another's hidden mutation surface.
+Executable catalogs, Agent-owned lifecycle/Goal runtimes, Observer maps, and
+future model state are not ambient globals and do not become one another's
+hidden mutation surface. The Neuron may guard a storage boundary, but guarding
+storage is not selection or firing authority.
 
 ## Trust boundary
 

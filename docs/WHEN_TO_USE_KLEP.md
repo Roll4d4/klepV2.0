@@ -15,10 +15,10 @@ These are nearest conventional analogues, not exact equivalences:
 | Key | Typed blackboard fact | An immutable occurrence with scope, payload, lifetime, provenance, activation timing, and store authority |
 | Lock | Predicate or action precondition | A pure condition over one frozen Key snapshot; Locks may contribute authored attractiveness but cannot mutate state |
 | Executable | Action, sensor, derivation rule, or behavior node | A registered behavior with Solo/Tandem mode, declared outputs, explicit lifecycle, teardown, and trace evidence |
-| Neuron | Utility selector plus deterministic scheduler | Settles same-snapshot Tandem waves first, then advances at most one eligible Solo behavior |
-| Goal | Composite behavior or scored utility action | A scored root Executable that exclusively owns ordered child layers; it is not a search planner |
-| Agent | Decision facade plus tabular learner | Owns one Neuron Tick path, records symbolic transition evidence, and may request guidance without changing eligibility |
-| Observer | Advisor or score-influence layer | Supplies one-use, explained influence only for roots whose Locks already passed |
+| Neuron | Blackboard plus behavior catalog | Passively owns Key stores and the registered root Executable set; it does not schedule or advance behavior |
+| Goal | Composite behavior or scored utility action | Exclusively owns ordered child layers and may run in Solo or Tandem; it is not a search planner |
+| Agent | Deterministic scheduler plus optional tabular learner | Exclusively owns the Tick path, all Executable runtime state, arbitration, recursive map, and decision history |
+| Observer | Structural and advisory policy layer | Maps the catalog and may provide complete candidate projections or explained influence only for roots whose Locks already passed |
 
 If a team cannot map this vocabulary onto concepts it already understands, it
 should not adopt KLEP merely because the names sound cognitive.

@@ -68,7 +68,7 @@ internal static class Program
         neuron.InitializeKey(ammo, sourceId: "observer.scout");
         neuron.InitializeKey(ammo, sourceId: "observer.partner");
 
-        KLEPKeySnapshot snapshot = neuron.Tick().KeySnapshot;
+        KLEPKeySnapshot snapshot = neuron.TickViaAgent().KeySnapshot;
         KLEPMemoryMoment captured = KLEPMemoryMoment.Capture(
             "capture.prior",
             KLEPMemoryMomentRole.Prior,

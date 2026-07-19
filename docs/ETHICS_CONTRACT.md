@@ -164,7 +164,7 @@ Emotion assembly. It does not:
 - select, interrupt, or advance an Executable or Goal;
 - advance Emotion;
 - write long-term Memory; or
-- invoke an Observer or Planner.
+- invoke the Observer's structural mapper, projection, or optional deliberation.
 
 Any later effect on behavior must occur after ordinary eligibility and requires
 an approved higher-cognition ranking contract.
@@ -172,7 +172,7 @@ an approved higher-cognition ranking contract.
 ## Still open
 
 - The owning host and exact phase that evaluate Ethics and advance Emotion
-  relative to a Neuron Tick.
+  relative to the owning Agent's Tick and its guarded Neuron Local boundary.
 - The project context schema and policy rules for the Humans-versus-Zombies
   experiment.
 - The observation timestamp and causal evidence fields each project context
@@ -180,5 +180,6 @@ an approved higher-cognition ranking contract.
 - The host boundary that explicitly links an Ethics evaluation with a Memory
   experience, Emotion transition, and causal Executable without guessing from
   Tick coincidence.
-- How competing Ethics, Emotion, Memory, Planner, Observer, and learned
-  influences are combined and explained without changing eligibility.
+- How competing Ethics, Emotion, Memory, Observer-map/projection, optional
+  Observer deliberation, and learned influences are combined and explained
+  without changing eligibility.

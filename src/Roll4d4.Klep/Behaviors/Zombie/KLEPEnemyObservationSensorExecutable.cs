@@ -95,6 +95,11 @@ namespace Roll4d4.Klep.Behaviors
         protected override KLEPExecutableTickStatus OnTick(
             KLEPExecutionContext context)
         {
+            if (observations.Count == 0)
+            {
+                return KLEPExecutableTickStatus.Failed;
+            }
+
             foreach (KLEPEnemyObservation observation in observations)
             {
                 context.Add(

@@ -30,16 +30,19 @@ remains governed separately.
 ## Snapshot boundary
 
 - Adds, removes, and replacements are staged.
-- External and Solo Local changes become visible at the next Neuron Tick.
+- External and Solo Local changes become visible when the owning Agent commits
+  the Neuron's next guarded Local boundary at `KLEPAgent.Tick`.
 - Actual Local changes emitted by Tandem Executables become visible at the next
-  deterministic wave barrier inside the current Tick. Peers in one wave always
-  read the same pre-barrier snapshot.
+  deterministic wave barrier inside the current Agent Tick. Peers in one wave
+  always read the same pre-barrier snapshot.
 - Global changes become visible only at the next world-owned Global boundary;
-  a Neuron never publishes them during a Local tandem wave.
+  neither the Neuron store nor its Agent publishes them during a Local Tandem
+  wave.
 - A snapshot copies a deterministic ordered list of immutable facts. Later store
   changes cannot alter an existing snapshot.
-- One Tick may therefore contain wave 0, wave 1, and later immutable snapshots.
-  The snapshot changes only by publishing a new revision at a barrier.
+- One Agent Tick may therefore contain wave 0, wave 1, and later immutable
+  snapshots. The snapshot changes only by publishing a new revision at a
+  barrier.
 - Facts are ordered by Key ID, then occurrence ID, using ordinal comparison.
 - One Key ID cannot be visible as both Local and Global in one snapshot.
 
@@ -75,14 +78,15 @@ remains governed separately.
   field such as ammo data or `observedWorldTick`.
 - Interaction staging never changes a current snapshot. Source removal and
   recipient delivery become visible at each affected store's next top-level
-  Local Tick boundary, never at a within-Tick Tandem wave. Trade is
-  staging-atomic; it does not promise globally simultaneous Local visibility.
+  Agent-committed Local boundary, never at a within-Agent-Tick Tandem wave.
+  Trade is staging-atomic; it does not promise globally simultaneous Local
+  visibility.
 - Lock evaluation remains pure. A Lock may test snapshot state, but it cannot
   stage Copy, Give, Take, Trade, Request, or any other mutation.
 
 ## Lifetime
 
-- `OneCycle` remains visible for the rest of the top-level Neuron cycle where it
+- `OneCycle` remains visible for the rest of the top-level Agent cycle where it
   activates, including later tandem-wave snapshots, and expires before the next
   top-level committed boundary.
 - `Persistent` remains until its exact fact is removed or replaced.
@@ -102,11 +106,13 @@ remains governed separately.
 ## Health example
 
 1. Spawn a Persistent Local Health fact with `hp = 10`.
-2. Replacing it with `hp = 0` becomes visible at the next tick.
+2. Replacing it with `hp = 0` becomes visible at the next Agent Tick boundary.
 3. A Tandem Consume Health At Zero behavior observes that snapshot and emits an
    exact removal.
 4. Every peer in that wave still sees Health.
 5. The wave barrier publishes a new immutable snapshot without Health.
-6. Final Solo selection in that same Tick sees `Not(KeyPresent(Health))` as true,
+6. Final Solo selection in that same Agent Tick sees
+   `Not(KeyPresent(Health))` as true,
    so the death-animation behavior can be selected. If consumption is performed
-   by the Solo action instead, its removal becomes visible on the following Tick.
+   by the Solo action instead, its removal becomes visible on the following
+   Agent Tick.

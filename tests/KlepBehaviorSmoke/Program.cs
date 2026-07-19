@@ -33,7 +33,7 @@ internal static class Program
         neuron.RegisterExecutable(sensor);
 
         sensor.SetObservation(false);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(!sensor.IsPresent,
             "The sensor exposes its current false host observation");
@@ -47,8 +47,8 @@ internal static class Program
 
         KLEPExecutableStepTrace step = FindStep(
             trace, GroundSensorId, KLEPExecutableStepKind.Tandem);
-        Expect(step != null && step.State == KLEPExecutableState.Succeeded,
-            "A false observation still completes one deterministic Tandem sensor run");
+        Expect(step != null && step.State == KLEPExecutableState.Failed,
+            "a false observation is an explicit no-output failed sensor run");
         Expect(step.Outputs.Count == 0,
             "A false observation emits no Ground Key operation");
     }
@@ -61,7 +61,7 @@ internal static class Program
         neuron.RegisterExecutable(sensor);
 
         sensor.SetObservation(true);
-        KLEPDecisionTrace trace = neuron.Tick();
+        KLEPDecisionTrace trace = neuron.TickViaAgent();
 
         Expect(sensor.IsPresent,
             "The sensor exposes its current true host observation");
@@ -98,11 +98,11 @@ internal static class Program
         neuron.RegisterExecutable(sensor);
 
         sensor.SetObservation(true);
-        KLEPDecisionTrace first = neuron.Tick();
+        KLEPDecisionTrace first = neuron.TickViaAgent();
         KLEPKeyFact firstFact = GetOnlyFact(first.KeySnapshot, ground.Id);
 
         sensor.SetObservation(true);
-        KLEPDecisionTrace second = neuron.Tick();
+        KLEPDecisionTrace second = neuron.TickViaAgent();
         KLEPKeyFact secondFact = GetOnlyFact(second.KeySnapshot, ground.Id);
 
         Expect(CountFacts(first.KeySnapshot, ground.Id) == 1 &&
@@ -114,13 +114,15 @@ internal static class Program
             "The repeated Ground occurrence belongs to the current top-level Tick");
 
         sensor.SetObservation(false);
-        KLEPDecisionTrace third = neuron.Tick();
+        KLEPDecisionTrace third = neuron.TickViaAgent();
         Expect(!third.InitialKeySnapshot.Contains(GroundKeyId) &&
                !third.KeySnapshot.Contains(GroundKeyId),
             "Ground expires before the next Tick and remains absent after a false observation");
-        Expect(FindStep(third, GroundSensorId, KLEPExecutableStepKind.Tandem)
-                   .Outputs.Count == 0,
-            "The false follow-up does not replace the expired Ground fact");
+        KLEPExecutableStepTrace absentStep = FindStep(
+            third, GroundSensorId, KLEPExecutableStepKind.Tandem);
+        Expect(absentStep.State == KLEPExecutableState.Failed &&
+               absentStep.Outputs.Count == 0,
+            "the false follow-up fails without replacing the expired Ground fact");
     }
 
     private static void VerifyGroundUnlocksSoloInSameTick()
@@ -145,7 +147,7 @@ internal static class Program
         neuron.RegisterExecutable(sensor);
 
         sensor.SetObservation(false);
-        KLEPDecisionTrace blocked = neuron.Tick();
+        KLEPDecisionTrace blocked = neuron.TickViaAgent();
         Expect(blocked.IsPatient && action.TickCount == 0,
             "The Ground-gated Solo stays blocked while the observation is false");
         CandidateEvaluation blockedCandidate = FindCandidate(blocked, GroundActionId);
@@ -153,7 +155,7 @@ internal static class Program
             "The blocked Solo is filtered before scoring");
 
         sensor.SetObservation(true);
-        KLEPDecisionTrace unlocked = neuron.Tick();
+        KLEPDecisionTrace unlocked = neuron.TickViaAgent();
         Expect(unlocked.SelectedExecutableId == GroundActionId && !unlocked.IsPatient,
             "Ground produced by the Tandem selects the Solo later in the same Tick");
         Expect(action.TickCount == 1 &&
@@ -281,7 +283,7 @@ internal static class Program
         }
 
         sensor.SetObservation(true);
-        return Serialize(neuron.Tick());
+        return Serialize(neuron.TickViaAgent());
     }
 
     private static KLEPKeyDefinition MakeGroundKey()
