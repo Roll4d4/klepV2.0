@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build and run contract suites
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-All.ps1

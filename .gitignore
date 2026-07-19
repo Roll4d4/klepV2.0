@@ -1,0 +1,16 @@
+bin/
+obj/
+artifacts/
+TestResults/
+coverage/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# These contracts describe the Unity host and Editor Observatory, which live
+# in the original KLEP integration repository rather than this source-only one.
+docs/OBSERVATORY_CONTRACT.md
+docs/OBSERVATORY_USAGE.md
+docs/ZOMBIE_TEST_CONTRACT.md

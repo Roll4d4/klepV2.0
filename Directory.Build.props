@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+</Project>
