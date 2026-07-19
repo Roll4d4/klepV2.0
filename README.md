@@ -8,10 +8,13 @@ for expressing what an agent perceives, what is currently possible, why one
 behavior wins, what actually executes, and what evidence remains afterward.
 
 This repository is deliberately **not a Unity project and not a Unity
-package**. It contains the portable kernel, behavior primitives, higher-
-cognition springboards, architectural contracts, and executable regression
-suites. Engine hosts belong at the boundary and translate their worlds into
-KLEP observations and effects.
+package**. It is the portable code-and-contract surface: the kernel, behavior
+primitives, higher-cognition springboards, architectural contracts, and
+executable regression suites. Engine hosts belong at the boundary and
+translate their worlds into KLEP observations and effects.
+
+For the tested Unity 6 developer download, use
+**[KLEP V2.0 for Unity on itch.io](https://roll4d4.itch.io/klep)**.
 
 KLEP does not claim to reproduce a human mind. Its purpose is the useful kind
 of unnatural precision: make a cognition-like process deterministic enough to
@@ -129,8 +132,9 @@ must not be mistaken for approved Core behavior.
 
 This repository does not claim a general planner, imagination model,
 persistence codec, networking layer, universal morality, or automatic engine
-integration. The Unity host, Editor Observatory, and playable zombie showcase
-remain in the [original KLEP integration repository](https://github.com/Roll4d4/KLEP).
+integration. The versioned Unity host and Editor Observatory are distributed
+as the [KLEP Unity package on itch.io](https://roll4d4.itch.io/klep). That page
+links back here as the engine-independent source of the portable system.
 
 ## License
 
