@@ -138,6 +138,4 @@ links back here as the engine-independent source of the portable system.
 
 ## License
 
-KLEP V2.0 is provided under the
-[KLEP Software License 1.0](LICENSE), including its attribution and ethical-use
-terms.
+KLEP V2.0 is open source under the [MIT License](LICENSE).

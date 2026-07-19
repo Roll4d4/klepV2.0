@@ -7,6 +7,7 @@
     <Description>Deterministic, inspectable symbolic behavior codebase.</Description>
     <Authors>Roll4d4</Authors>
     <RepositoryUrl>https://github.com/Roll4d4/klepV2.0</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>

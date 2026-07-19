@@ -9,3 +9,4 @@
 - Included 13 engine-independent executable contract suites.
 - Excluded Unity hosts, scenes, ScriptableObjects, Editor tools, package
   metadata, and generated files.
+- Replaced the former KLEP ethical-use license with the standard MIT License.
