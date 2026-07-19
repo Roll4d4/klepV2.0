@@ -7,6 +7,8 @@
   lifecycle, Agent learning, and eligibility-gated Observer influence.
 - Included portable Behavior, Ethics, Emotion, Memory, and cognition layers.
 - Included 13 engine-independent executable contract suites.
+- Added a runnable minimal consumer, explicit claims-and-evidence accounting,
+  architecture comparison guidance, and project provenance disclosure.
 - Excluded Unity hosts, scenes, ScriptableObjects, Editor tools, package
   metadata, and generated files.
 - Replaced the former KLEP ethical-use license with the standard MIT License.

@@ -1,141 +1,160 @@
 # KLEP V2.0
 
 [![CI](https://github.com/Roll4d4/klepV2.0/actions/workflows/ci.yml/badge.svg)](https://github.com/Roll4d4/klepV2.0/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status: preview](https://img.shields.io/badge/status-preview-orange.svg)](CHANGELOG.md)
 
-KLEP V2.0 is the engine-independent C# codebase for a deterministic,
-inspectable symbolic behavior system. It gives developers a small vocabulary
-for expressing what an agent perceives, what is currently possible, why one
-behavior wins, what actually executes, and what evidence remains afterward.
+KLEP is an engine-independent C# toolkit for **deterministic, inspectable
+symbolic behavior arbitration**. It makes perceived facts, eligibility,
+scoring, lifecycle, output, and the reason one behavior won available as
+immutable evidence.
 
-This repository is deliberately **not a Unity project and not a Unity
-package**. It is the portable code-and-contract surface: the kernel, behavior
-primitives, higher-cognition springboards, architectural contracts, and
-executable regression suites. Engine hosts belong at the boundary and
-translate their worlds into KLEP observations and effects.
+This is preview source. It is not a claim of human cognition, a scientific
+validation of a cognitive architecture, or a proven replacement for behavior
+trees, GOAP, utility AI, state machines, or rule engines. Start with
+[Claims and evidence](docs/CLAIMS_AND_EVIDENCE.md) for the exact boundary and
+[When to use KLEP](docs/WHEN_TO_USE_KLEP.md) for an honest comparison.
 
-For the tested Unity 6 developer download, use
+For the tested Unity 6 package and Editor Observatory, use
 **[KLEP V2.0 for Unity on itch.io](https://roll4d4.itch.io/klep)**.
 
-KLEP does not claim to reproduce a human mind. Its purpose is the useful kind
-of unnatural precision: make a cognition-like process deterministic enough to
-test, inspect, reproduce, and explain.
+## Run one real decision
 
-## The working language
+Install the .NET 10 SDK, clone the repository, and run:
 
-- **Keys** are immutable typed fact occurrences perceived inside a Neuron.
-- **Locks** are pure conditions over a frozen Key snapshot.
-- **Executables** are lifecycle-controlled Sensors, Routers, or Actions.
-- **Goals** are scored Executables that own ordered layers of child behavior.
-- **Neurons** perform deterministic eligibility, scoring, arbitration, and
-  execution.
-- **Agents** observe Neuron traces, retain bounded learning evidence, and may
-  ask an Observer for guidance.
-- **Observers** may rank already-eligible behavior; they cannot make invalid
-  behavior eligible.
+```powershell
+dotnet run --project examples/KlepMinimalConsole/KlepMinimalConsole.csproj
+```
 
-The ordinary decision path is:
+The [minimal consumer](examples/KlepMinimalConsole/README.md) is executable
+project code, not pseudocode. A host supplies `humanInRange=false`, `true`, and
+`false`. KLEP then runs a Tandem Sensor, produces a one-cycle Key, evaluates an
+`Eat human` Goal and a lower-scored `Wander` fallback, executes the winner, and
+leaves an intent in the completed trace for the host to apply. The scenario is
+replayed and fails if identical input produces a different trace signature.
+
+## The execution contract
 
 ```text
 host observation
-    -> Sensor / Router Executables
+    -> Sensor and Router Executables settle in deterministic Tandem waves
     -> immutable Key snapshot
     -> pure Lock evaluation
     -> eligible root behaviors only
     -> deterministic scoring and arbitration
     -> Action or Goal-owned child lifecycle
     -> immutable trace and declared Key output
+    -> host applies effects after the completed Tick
 ```
 
-The optional higher-cognition path is separate and causal:
+The familiar concepts have stricter local meanings:
 
-```text
-observed event -> project Ethics -> Emotion -> Memory -> Observer evidence
-```
+| KLEP term | Nearest familiar idea | Contracted KLEP boundary |
+|---|---|---|
+| Key | typed blackboard fact | immutable occurrence with scope, payload, lifetime, provenance, and store authority |
+| Lock | predicate or precondition | pure evaluation over one frozen Key snapshot |
+| Executable | action, sensor, rule, or behavior node | declared output plus explicit lifecycle, teardown, and trace evidence |
+| Neuron | utility selector and scheduler | deterministic Tandem settlement followed by at most one eligible Solo behavior |
+| Goal | scored composite | owns ordered child layers; it is not a search planner |
+| Observer | advisor or score influence | may rank eligible roots and may never bypass Locks |
 
-Ethical meaning belongs to the project. Emotion integrates evaluated
-influence. Memory records perceived experience and factual lifecycle outcome.
-None of those systems may silently manufacture Keys, open Locks, or rewrite
-whether an Executable actually succeeded.
+KLEP's adoption case is not that those ingredients are new. It is their shared
+execution contract: immutable evaluation snapshots, staged Key mutations,
+barriered Tandem waves, eligibility before influence, stable tie-breaking,
+transactional output validation, explicit lifecycle cleanup, and forensic
+traces.
 
-## Repository map
+## About the cognition-inspired names
 
-```text
-src/Roll4d4.Klep/
-  Core/          Keys, Locks, Neuron, Executables, Goals, Agent
-  Behaviors/     engine-free observation, input, and zombie behavior recipes
-  Observer/      eligibility-gated guidance and traceable polish
-  Emotion/       two-axis motion, influence, friction, and snapshots
-  Ethics/        project-owned contextual evaluation boundary
-  Memory/        experience, heat, consolidation, recall, and continuation state
-  Cognition/     Ethics -> Emotion -> Memory composition and evidence adapters
+Optional modules named Ethics, Emotion, Memory, Agent learning, and Cognition
+are bounded computational mechanisms and project vocabulary:
 
-tests/           13 executable, dependency-free contract suites
-docs/            constitution, contracts, and decision ledger
-scripts/         local build-and-test entry point
-```
+- Ethics applies project-authored contextual rules to produce traced numeric
+  influence. It does not solve ethics.
+- Emotion integrates influence on two designer-named axes with velocity,
+  bounds, friction, and snapshots. It does not claim felt experience.
+- Memory associates and recalls perceived episodes using deterministic heat,
+  repetition, fading, and scoring. It does not create world truth.
+- Agent learning performs a tabular temporal-difference update over symbolic
+  state and root behavior identities. It is not general learning or planning.
+- Observer evidence may adjust the rank of valid behavior. It cannot make an
+  invalid behavior possible.
 
-The portable runtime contains 43 implementation files and has no Unity, NuGet,
-or third-party runtime dependency. It targets `netstandard2.1`; the contract
-suites target .NET 10.
+The older phrase "higher cognition" describes this optional composition seam
+inside the project. It is not an empirical result or cognitive-science
+classification.
+
+## Evidence, stated at its actual strength
+
+The repository contains 13 project-authored, dependency-free console suites.
+The current run executes **4,163 assertions**. That number means assertion
+executions, including repetitions inside scenarios; it does not mean 4,163
+independent tests.
+
+Nine suites are mapped to approved CoreContract behavior. Three exercise
+candidate behavior-library decisions, and one is the Zombie Goal scenario.
+They are useful internal regression evidence for the contracts they actually
+assert. They are not third-party validation, a performance benchmark,
+production adoption evidence, or proof that KLEP is preferable to another
+architecture.
+
+See [Claims and evidence](docs/CLAIMS_AND_EVIDENCE.md) for the per-suite count,
+validation ladder, supported claims, and claims not yet demonstrated.
 
 ## Build and verify
 
-Install the .NET 10 SDK, then run:
+The runtime library targets `netstandard2.1` and has no Unity, NuGet, or
+third-party runtime dependency. The repository's contributor harness and
+examples use the .NET 10 SDK; a consuming application does not need to target
+.NET 10 if it can reference a `netstandard2.1` library.
 
 ```powershell
 dotnet build KLEP.sln --configuration Release
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-All.ps1
 ```
 
-The suites are ordinary console programs with hand-written deterministic
-assertions. They cover Key identity and exchanges, Lock truth, Executable and
-Goal lifecycle, ownership atomicity, arbitration, Agent/Observer evidence,
-Emotion, Ethics, Memory, cognition rollback, input behaviors, and the
-Wander/Eat Human/Avoid Edge behavior set. The current 13 suites execute 4,163
-assertions.
+CI executes those project-owned checks on every push and pull request.
 
-## Host integration
+## Repository map
 
-A host owns time, world sampling, entity resolution, and physical effects. A
-typical integration does the following:
+```text
+src/Roll4d4.Klep/
+  Core/          Keys, Locks, Neuron, Executables, Goals, Agent
+  Behaviors/     engine-free observation, input, and behavior recipes
+  Observer/      eligibility-gated guidance and traceable polish
+  Emotion/       two-axis motion, influence, friction, and snapshots
+  Ethics/        project-owned contextual evaluation boundary
+  Memory/        experience, heat, consolidation, recall, continuation state
+  Cognition/     explicit Ethics -> Emotion -> Memory composition
 
-1. Define stable Key and Executable identities.
-2. Translate world observations into immutable Sensor inputs.
-3. Express eligibility with Locks and register root Executables or Goals.
-4. Construct one `KLEPNeuron`, optionally wrap it in `KLEPAgent`, and advance
-   exactly one explicit Tick per decision boundary.
-5. Apply only the intent recorded by that completed Tick.
-6. Preserve the immutable trace for diagnostics, learning, or replay.
-
-Conceptually:
-
-```csharp
-var neuron = new KLEPNeuron("npc.001");
-neuron.RegisterExecutable(projectSensor);
-neuron.RegisterExecutable(projectGoal);
-
-var agent = new KLEPAgent(neuron, configuration, observer);
-KLEPAgentTickTrace trace = agent.Tick();
-
-// The host applies effects from the completed trace after the Tick.
+examples/        runnable consumer code
+tests/           13 executable internal contract and scenario suites
+docs/            constitution, contracts, decisions, evidence, provenance
+scripts/         local build-and-test entry point
 ```
 
-Project code supplies the concrete Sensors, Actions, policies, and effect
-application. KLEP supplies the deterministic authority and evidence chain.
+## Distribution and maturity
 
-## Status and boundaries
+This repository is deliberately the portable code-and-contract surface, not a
+Unity project and not a NuGet distribution (`IsPackable=false`). Unity hosts,
+the Editor Observatory, and the versioned UPM tarball live on
+[itch.io](https://roll4d4.itch.io/klep).
 
-This is a preview of the V2.0 standalone line. The accepted semantics live in
-[`docs/DECISIONS.md`](docs/DECISIONS.md); the constitution and behavioral
-contracts define the authority chain. Candidate decisions remain visible and
-must not be mistaken for approved Core behavior.
+`2.0.0-preview.1` does not promise API stability, production fitness, benchmark
+results, persistence, networking, a general planner, an imagination model, or
+automatic project integration. Evaluate one real behavior, inspect its trace,
+measure your workload, and pin the exact reviewed commit before depending on
+the preview.
 
-This repository does not claim a general planner, imagination model,
-persistence codec, networking layer, universal morality, or automatic engine
-integration. The versioned Unity host and Editor Observatory are distributed
-as the [KLEP Unity package on itch.io](https://roll4d4.itch.io/klep). That page
-links back here as the engine-independent source of the portable system.
+Accepted semantics live in [docs/DECISIONS.md](docs/DECISIONS.md). The
+[constitution](docs/KLEP_CONSTITUTION.md) and behavioral contracts define the
+authority chain; Candidate decisions remain visible and are not silently
+promoted to approved Core behavior.
 
-## License
+## Provenance and license
+
+The first public commit is a migration snapshot, not invented incremental
+history. The V2.0 rewrite is human-directed and AI-assisted; current independent
+review limits are disclosed in [Project provenance](docs/PROJECT_PROVENANCE.md).
 
 KLEP V2.0 is open source under the [MIT License](LICENSE).

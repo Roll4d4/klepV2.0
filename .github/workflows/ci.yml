@@ -22,3 +22,7 @@ jobs:
       - name: Build and run contract suites
         shell: pwsh
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-All.ps1
+
+      - name: Run the minimal consumer
+        shell: pwsh
+        run: dotnet run --project examples/KlepMinimalConsole/KlepMinimalConsole.csproj --configuration Release --no-build --no-restore
