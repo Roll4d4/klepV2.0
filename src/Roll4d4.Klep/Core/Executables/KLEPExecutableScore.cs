@@ -10,7 +10,8 @@ namespace Roll4d4.Klep.Core
         ExecutionLock,
         ObserverInfluence,
         GoalIntrinsicAttraction,
-        ProjectedSatisfaction
+        ProjectedSatisfaction,
+        LearnedDesireExpectation
     }
 
     public readonly struct KLEPExecutableScoreComponent
@@ -21,7 +22,8 @@ namespace Roll4d4.Klep.Core
             float value,
             string sourceVersion = null,
             string explanation = "",
-            KLEPProjectedSatisfactionEvaluation projectedSatisfaction = null)
+            KLEPProjectedSatisfactionEvaluation projectedSatisfaction = null,
+            KLEPLearnedDesireCandidateEvaluation learnedDesireExpectation = null)
         {
             Kind = kind;
             SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
@@ -29,6 +31,7 @@ namespace Roll4d4.Klep.Core
             SourceVersion = sourceVersion;
             Explanation = explanation ?? string.Empty;
             ProjectedSatisfaction = projectedSatisfaction;
+            LearnedDesireExpectation = learnedDesireExpectation;
         }
 
         public KLEPExecutableScoreComponentKind Kind { get; }
@@ -37,6 +40,10 @@ namespace Roll4d4.Klep.Core
         public string SourceVersion { get; }
         public string Explanation { get; }
         public KLEPProjectedSatisfactionEvaluation ProjectedSatisfaction { get; }
+        public KLEPLearnedDesireCandidateEvaluation LearnedDesireExpectation
+        {
+            get;
+        }
     }
 
     // This first score model is intentionally small and fully inspectable. Key
@@ -201,6 +208,65 @@ namespace Roll4d4.Klep.Core
                 $"Projected satisfaction from {evaluation.Desires.Count} " +
                 "authored desires.",
                 evaluation));
+            return new KLEPExecutableScoreEvaluation(
+                ExecutableId,
+                copy.AsReadOnly(),
+                (float)effective);
+        }
+
+        internal KLEPExecutableScoreEvaluation WithLearnedDesireExpectation(
+            KLEPLearnedDesireCandidateEvaluation evaluation)
+        {
+            if (evaluation == null)
+            {
+                throw new ArgumentNullException(nameof(evaluation));
+            }
+
+            if (!StringComparer.Ordinal.Equals(
+                    ExecutableId, evaluation.TargetExecutableId))
+            {
+                throw new ArgumentException(
+                    "A learned Desire evaluation must target the scored Executable.",
+                    nameof(evaluation));
+            }
+
+            if (Total != evaluation.PrePolicyScore)
+            {
+                throw new ArgumentException(
+                    "A learned Desire evaluation was computed from a different pre-policy score.",
+                    nameof(evaluation));
+            }
+
+            float contribution = evaluation.ScoreContribution;
+            if (float.IsNaN(contribution) || float.IsInfinity(contribution))
+            {
+                throw new ArgumentOutOfRangeException(nameof(evaluation));
+            }
+
+            double effective = (double)Total + contribution;
+            if (double.IsNaN(effective) ||
+                double.IsInfinity(effective) ||
+                effective > float.MaxValue ||
+                effective < -float.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "Learned Desire expectation exceeded the finite score range.");
+            }
+
+            var copy = new List<KLEPExecutableScoreComponent>(Components.Count + 1);
+            for (int index = 0; index < Components.Count; index++)
+            {
+                copy.Add(Components[index]);
+            }
+
+            copy.Add(new KLEPExecutableScoreComponent(
+                KLEPExecutableScoreComponentKind.LearnedDesireExpectation,
+                evaluation.PolicyStableId,
+                contribution,
+                evaluation.PolicyVersion,
+                $"Learned expectation from {evaluation.Desires.Count} desires " +
+                $"under bindings '{evaluation.BindingFingerprint}'.",
+                learnedDesireExpectation: evaluation));
             return new KLEPExecutableScoreEvaluation(
                 ExecutableId,
                 copy.AsReadOnly(),

@@ -15,6 +15,13 @@ arbitration, and history. Every Agent also owns a revisioned recursive map of
 the behavior it can currently execute; optional Observer policy may project
 complete candidate outcomes or polish scores, but it cannot bypass Locks.
 
+Preview.3 separates three additional authorities. Desire evaluates which
+project-authored conditions matter now. Learned Expectations retains empirical
+effect estimates without deciding value. The Agent may apply that evidence only
+to behavior whose Locks already passed, and its Intention ledger records the
+Goal commitment that actually followed. None of these components may invent a
+Key, open a Lock, or perform a physical effect.
+
 This is preview source. It is not a claim of human cognition, a scientific
 validation of a cognitive architecture, or a proven replacement for behavior
 trees, GOAP, utility AI, state machines, or rule engines. Start with
@@ -73,9 +80,18 @@ traces.
 
 ## About the cognition-inspired names
 
-Optional modules named Ethics, Emotion, Memory, Agent learning, and Cognition
-are bounded computational mechanisms and project vocabulary:
+Optional modules named Desire, Learned Expectations, Intention, Ethics,
+Emotion, Memory, Agent learning, and Cognition are bounded computational
+mechanisms and project vocabulary:
 
+- Desire evaluates ordered project-authored preferred conditions as
+  satisfaction, deficit, and pressure. It does not select behavior.
+- Learned Expectations records empirical exact-Key and ActionOwned Desire
+  effects with support, variance, prediction error, and confidence. It is a
+  critic, not a terminal-value system or planner.
+- Intention is the Agent's post-decision ledger for actual root Goal adoption,
+  suspension, resumption, completion, and abandonment. It does not add
+  stickiness or choose Goals.
 - Ethics applies project-authored contextual rules to produce traced numeric
   influence. It does not solve ethics.
 - Emotion integrates influence on two designer-named axes with velocity,
@@ -94,17 +110,16 @@ classification.
 
 ## Evidence, stated at its actual strength
 
-The repository contains 13 project-authored, dependency-free console suites.
-The current run executes **4,405 assertions**. That number means assertion
-executions, including repetitions inside scenarios; it does not mean 4,405
+The repository contains 17 project-authored, dependency-free console suites.
+The current run executes **4,676 assertions**. That number means assertion
+executions, including repetitions inside scenarios; it does not mean 4,676
 independent tests.
 
-Nine suites are mapped to approved CoreContract behavior. Three exercise
-candidate behavior-library decisions, and one is the Zombie Goal scenario.
-They are useful internal regression evidence for the contracts they actually
-assert. They are not third-party validation, a performance benchmark,
-production adoption evidence, or proof that KLEP is preferable to another
-architecture.
+The suites span approved CoreContract behavior, candidate behavior-library
+decisions, portable cognition modules, and bounded zombie scenarios. They are
+useful internal regression evidence for the contracts they actually assert.
+They are not third-party validation, a performance benchmark, production
+adoption evidence, or proof that KLEP is preferable to another architecture.
 
 See [Claims and evidence](docs/CLAIMS_AND_EVIDENCE.md) for the per-suite count,
 validation ladder, supported claims, and claims not yet demonstrated.
@@ -130,13 +145,15 @@ src/Roll4d4.Klep/
   Core/          Keys, Locks, passive Neuron, Executables, Goals, Agent runtime
   Behaviors/     engine-free observation, input, and behavior recipes
   Observer/      structural mapping, safe projection seam, traceable polish
+  Desire/        authored preferred conditions and attributed raw effects
+  LearnedExpectations/  empirical effect estimates and critic evidence
   Emotion/       two-axis motion, influence, friction, and snapshots
   Ethics/        project-owned contextual evaluation boundary
   Memory/        experience, heat, consolidation, recall, continuation state
   Cognition/     explicit Ethics -> Emotion -> Memory composition
 
 examples/        runnable consumer code
-tests/           13 executable internal contract and scenario suites
+tests/           17 executable internal contract and scenario suites
 docs/            constitution, contracts, decisions, evidence, provenance
 scripts/         local build-and-test entry point
 ```
@@ -148,11 +165,11 @@ Unity project and not a NuGet distribution (`IsPackable=false`). Unity hosts,
 the Editor Observatory, and the versioned UPM tarball live on
 [itch.io](https://roll4d4.itch.io/klep).
 
-`2.0.0-preview.2` (public milestone **Preview 0.1.1**) does not promise API stability, production fitness, benchmark
-results, persistence, networking, a general planner, an imagination model, or
-automatic project integration. Evaluate one real behavior, inspect its trace,
-measure your workload, and pin the exact reviewed commit before depending on
-the preview.
+`2.0.0-preview.3` does not promise API stability, production fitness,
+benchmark results, persistence codecs, networking, a general planner, an
+imagination model, or automatic project integration. Evaluate one real
+behavior, inspect its trace, measure your workload, and pin the exact reviewed
+commit before depending on the preview.
 
 Accepted semantics live in [docs/DECISIONS.md](docs/DECISIONS.md). The
 [constitution](docs/KLEP_CONSTITUTION.md) and behavioral contracts define the

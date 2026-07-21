@@ -21,10 +21,13 @@ KLEP uses cognition-inspired names for optional, bounded mechanisms:
 
 | KLEP name | Implemented mechanism | What the name does not establish |
 |---|---|---|
+| Desire | Ordered project-authored preferred conditions evaluated as satisfaction, deficit, pressure, and raw attributed transition effects | Universal value, automatic behavior selection, or learned preference |
+| Learned Expectations | Independent empirical exact-Key and ActionOwned Desire-effect estimates with support, variance, prediction error, and confidence | A complete world model, route probability, planning, or terminal value |
+| Intention | Agent-owned post-decision evidence for actual root Goal adoption, suspension, resumption, completion, and abandonment | Goal invention, commitment utility, planning, or execution authority |
 | Ethics | Project-authored, ordered contextual rules producing traced influence on two designer-named axes | A universal moral system, moral truth, or ethical reasoning |
 | Emotion | A bounded two-axis state with velocity, accumulated influence, friction, and immutable snapshots | Felt experience, affective science validity, or human emotion |
 | Memory | Deterministic episode association, repetition, heat, retention, detail fading, and pure recall scoring | Autobiographical consciousness, conjecture, or current world truth |
-| Observer | Read-only structural mapping plus project seams for complete candidate-state projection and explained influence on already-eligible roots | A built-in planner, authoritative world model, or authority to bypass Locks |
+| Observer | Read-only structural mapping plus query and project seams for complete candidate-state projection and explained influence on already-eligible roots | A built-in planner, owner of learned state, authoritative world model, or authority to bypass Locks |
 | Agent learning | A tabular semi-Markov temporal-difference update over a symbolic state signature and root action ID | General learning, transfer learning, model learning, or planning |
 
 The repository sometimes groups these modules under “higher cognition.” Here
@@ -35,28 +38,32 @@ are stated in the [constitution](KLEP_CONSTITUTION.md) and subsystem contracts.
 ## Current internal evidence
 
 The runtime targets `netstandard2.1` and has no third-party runtime dependency.
-The repository includes 13 dependency-free console suites. CI builds the
+The repository includes 17 dependency-free console suites. CI builds the
 solution and executes every suite through [`scripts/Test-All.ps1`](../scripts/Test-All.ps1).
 
-The current total is **4,405 assertion executions**, not 4,405 distinct tests,
+The current total is **4,676 assertion executions**, not 4,676 distinct tests,
 independently specified requirements, or externally reviewed cases:
 
 | Executable suite | Assertion executions |
 |---|---:|
-| `KlepAgentSmoke` | 155 |
+| `KlepAgentSmoke` | 169 |
 | `KlepBehaviorSmoke` | 52 |
-| `KlepCognitionSmoke` | 34 |
+| `KlepCognitionSmoke` | 46 |
+| `KlepDesireSmoke` | 57 |
 | `KlepEmotionSmoke` | 43 |
 | `KlepEthicsSmoke` | 34 |
-| `KlepExecutableSmoke` | 376 |
+| `KlepExecutableSmoke` | 394 |
+| `KlepHumanSightingSmoke` | 25 |
+| `KlepIntentionSmoke` | 54 |
 | `KlepKeySmoke` | 848 |
+| `KlepLearnedExpectationsSmoke` | 22 |
 | `KlepLockSmoke` | 113 |
-| `KlepMemorySmoke` | 75 |
-| `KlepObserverSmoke` | 83 |
+| `KlepMemorySmoke` | 93 |
+| `KlepObserverSmoke` | 134 |
 | `KlepPlayerInputSmoke` | 245 |
 | `KlepZombieGoalSmoke` | 2,206 |
 | `KlepZombieSmoke` | 141 |
-| **Total** | **4,405** |
+| **Total** | **4,676** |
 
 Some assertions execute repeatedly inside scenario loops. The suites were
 written with the implementation and its project-owned contracts. They are
@@ -74,8 +81,8 @@ Different validation levels answer different questions:
 |---|---|---|
 | Source and contract inspection | The declared algorithms, boundaries, and unresolved decisions are reviewable | Present in this repository |
 | Compile | The selected projects compile under the documented SDK and configuration | Automated in CI |
-| Approved CoreContract execution | The assertions mapped to accepted pure-runtime contracts pass | Automated in CI for 9 designated suites |
-| Candidate and scenario regression execution | Implemented preview behavior continues to match its authored scenarios | CI also runs 3 mapped behavior-library suites and the Zombie Goal scenario suite |
+| Approved CoreContract execution | The assertions mapped to accepted pure-runtime contracts pass | Automated in CI for the designated contract suites |
+| Candidate and scenario regression execution | Implemented preview behavior continues to match its authored scenarios | CI also runs behavior-library, portable cognition, and bounded zombie scenario suites |
 | Unity import and Editor inspection | A particular Unity package imports and its tooling can be inspected | A separate tested developer package is distributed on [itch.io](https://roll4d4.itch.io/klep); it is not evidence supplied by this engine-free repository |
 | Play Mode or standalone run | A named scene and interaction worked in a named Unity version | Must be reported separately for each build and scenario |
 | Independent validation | An outside user, implementation, benchmark, replication, or deployment corroborates usefulness | Not yet documented here |
@@ -101,6 +108,10 @@ regression suites support these bounded claims:
   paths;
 - Key-output batches are preflighted, and failed batches restore pending store
   state as specified by the contract;
+- accepted catalog removals settle in stable order despite teardown faults, and
+  recovery republishes structure that matches the surviving runtime catalog;
+- Desire, independent learned-effect evidence, and Intention retain separate,
+  inspectable authority while the Agent remains the only selector;
 - decisions and material higher-cognition influence retain immutable,
   inspectable evidence; and
 - Core and the portable cognition modules do not depend on Unity APIs.
@@ -135,7 +146,7 @@ project author or independently.
 
 ## Preview and adoption boundary
 
-`2.0.0-preview.2` (public milestone **Preview 0.1.1**) is auditable preview source, not a promise of a stable
+`2.0.0-preview.3` is auditable preview source, not a promise of a stable
 production dependency. The standalone project deliberately sets
 `IsPackable=false`; this repository is not currently a NuGet distribution. The
 runtime library targets `netstandard2.1`, while reproducing the current contract

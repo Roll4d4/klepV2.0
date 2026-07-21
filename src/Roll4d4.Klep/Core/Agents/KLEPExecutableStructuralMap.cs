@@ -243,6 +243,7 @@ namespace Roll4d4.Klep.Core
             string stableExecutableId,
             string displayName,
             KLEPExecutableKind kind,
+            bool isGoalRecipe,
             KLEPExecutionMode executionMode,
             string parentPath,
             string parentExecutableId,
@@ -260,6 +261,7 @@ namespace Roll4d4.Klep.Core
             StableExecutableId = stableExecutableId ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
             Kind = kind;
+            IsGoalRecipe = isGoalRecipe;
             ExecutionMode = executionMode;
             ParentPath = parentPath;
             ParentExecutableId = parentExecutableId;
@@ -278,6 +280,7 @@ namespace Roll4d4.Klep.Core
         public string StableExecutableId { get; }
         public string DisplayName { get; }
         public KLEPExecutableKind Kind { get; }
+        public bool IsGoalRecipe { get; }
         public KLEPExecutionMode ExecutionMode { get; }
         public string ParentPath { get; }
         public string ParentExecutableId { get; }
@@ -920,6 +923,7 @@ namespace Roll4d4.Klep.Core
                     executable.StableId,
                     executable.DisplayName,
                     executable.Kind,
+                    executable is KLEPGoal,
                     executable.ExecutionMode,
                     parentPath,
                     parentExecutableId,
@@ -1223,7 +1227,7 @@ namespace Roll4d4.Klep.Core
             IReadOnlyList<KLEPStructuralMapDiagnostic> diagnostics)
         {
             var writer = new CanonicalWriter();
-            writer.Append("klep-structural-map-v1");
+            writer.Append("klep-structural-map-v2");
             writer.Append(revision);
             writer.Append(roots.Count);
             foreach (KLEPExecutableStructuralNode root in roots)
@@ -1251,6 +1255,7 @@ namespace Roll4d4.Klep.Core
             writer.Append(node.StableExecutableId);
             writer.Append(node.DisplayName);
             writer.Append((int)node.Kind);
+            writer.Append(node.IsGoalRecipe);
             writer.Append((int)node.ExecutionMode);
             writer.Append(node.ParentPath);
             writer.Append(node.ParentExecutableId);

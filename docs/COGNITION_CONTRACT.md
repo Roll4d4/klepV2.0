@@ -22,6 +22,12 @@ Neuron recursive Executable catalog
     -> mandatory baseline/project KLEPObserver structural validation and map
     -> immutable assessment/projections
     -> Agent-owned decision
+
+already-evaluated optional Desire effect vector
+    -> cognition preflight validation and defensive copy
+    -> archival fact in the same KLEPMemory experience
+    -> optional later submission to independent KLEPLearnedExpectations
+    -> optional KLEP-AGENT-011 evidence for an already-eligible bound root
 ```
 
 The composition validates that Ethics, Emotion, and Memory use the same exact
@@ -30,9 +36,16 @@ adapters, and the Observer. Additional Observer evidence sources are injected.
 No axis name, preferred emotional position, ethical rule, reward sign, or
 project meaning is supplied by this layer.
 
+The composition does not own or advance a Desire system. Desire is pull toward
+project-authored preferred conditions; Emotion remains the separate felt
+two-axis state and motion. Cognition accepts only an optional already-evaluated
+immutable Desire effect vector and archives a defensive copy without deriving
+either fact from the other.
+
 This is composition ownership, not an exclusive capability sandbox. The caller
 still holds the injected public subsystem objects. A trusted host must treat
-`Process` as their causal write boundary, must not independently advance its
+`Process` and the explicit no-experience Emotion transition as the only write
+boundaries for retained cognition state, must not independently advance its
 Emotion or Memory, and must not share Agent-specific mutable cognition state
 across several runners.
 
@@ -51,17 +64,27 @@ evidence:
 - one exactly consecutive Emotion Tick;
 - one strictly increasing Memory Tick;
 - ordered Prior, optional During, and Consequence moments copied from actual
-  Neuron snapshots; and
-- an optional factual Executable lifecycle outcome.
+  Neuron snapshots;
+- an optional factual Executable lifecycle outcome; and
+- an optional already-evaluated immutable Desire effect vector bound to the
+  exact Prior and Consequence moment identities.
 
 It performs exactly this order:
 
 1. preflight clocks, moment ordering, causal timestamps, duplicate experience
-   identity, and subsystem-axis compatibility;
+   identity, subsystem-axis compatibility, and any Desire vector; copy valid
+   Desire evidence before state-producing work begins;
 2. evaluate project Ethics and retain its guarded trace;
 3. advance Emotion once using that exact evaluated influence; and
 4. construct and record one Memory experience containing the factual action
-   outcome, Ethics trace, and produced Emotion consequence.
+   outcome, Ethics trace, produced Emotion consequence, and optional copied
+   Desire vector.
+
+Desire validation requires exact experience-boundary moment identities and, for
+`ActionOwned` attribution, the matching factual Executable stable ID and run
+index. The transition returns the same evaluated vector as immutable evidence.
+Cognition does not evaluate or mutate Desire, add a state-producing phase,
+learn an expectation, or change the accepted Ethics to Emotion to Memory order.
 
 The immutable transition trace retains each subsystem's own Tick and provenance
 ID. Their order is causal evidence, not a claim that Neuron, Ethics, Emotion,
@@ -77,6 +100,25 @@ of that rollback, so the same causal request may be retried deterministically.
 The checkpoints are internal composition authority, not public rewind or
 persistence APIs. They cannot roll back side effects inside project-owned policy;
 Ethics evaluators remain obligated to be pure for identical inputs.
+The supplied Desire vector is already immutable evidence outside those mutable
+checkpoints; Cognition copies it but never advances or rolls back a Desire
+system.
+
+## Advancing Emotion without fabricating an experience
+
+`AdvanceEmotionWithoutExperience` is the composition-owned path for an exact
+consecutive Emotion Tick on which no causal experience closes. It advances the
+retained Emotion once with an empty influence list so existing velocity and
+friction continue truthfully. It does not evaluate Ethics, advance Memory or
+Desire, create an empty Memory episode, or publish or replace
+`LastTransition`.
+
+The trusted host must choose exactly one path for a native Emotion Tick:
+`Process` when an experience closes, or
+`AdvanceEmotionWithoutExperience` when none does. Consecutive-Tick validation
+therefore rejects skipping time, replaying a Tick, or applying both paths to the
+same Tick. This narrow seam resolves emotional friction continuity without
+giving a Unity host direct subsystem mutation authority.
 
 ## Observer evidence adapters
 
@@ -102,10 +144,12 @@ as `InvalidOperationException`, retains the project exception as its inner
 exception, and publishes no partial adapter evaluation trace. Detection is not
 rollback: trusted policy is still obligated not to mutate the injected source.
 
-## Candidate Unity Agent construction seam
+## Unity Agent construction and ZombieTest adapter
 
-This section describes Candidate KLEP-UNITY-008, not an approved pure-runtime
-rule. KLEP-UNITY-005 is retained as superseded history in `DECISIONS.md`.
+The construction portion below describes Candidate KLEP-UNITY-008, not an
+approved pure-runtime rule. KLEP-UNITY-005 is retained as superseded history in
+`DECISIONS.md`. The narrow factual bite adapter is separately accepted by
+KLEP-UNITY-010.
 
 `KLEPNeuronRunner` still owns only observation, hosting one Agent Tick, Unity
 effect sinks, and diagnostics. Before initialization it may receive one
@@ -132,16 +176,22 @@ project Observer extension. With no source it preserves the default Agent and
 mandatory deterministic baseline structural Observer; only project cognition
 and optional low-confidence deliberation are absent. Project-specific hosts may
 implement the interface without adding Unity to the cognition layer.
-The ZombieTest contains one concrete project-owned source as construction and
-diagnostic evidence. That source deliberately has zero ethical rules and
-abstaining Memory/Emotion evidence policies, so attaching it cannot polish or
-change selection. Constructing actual project Ethics context and closing causal
-episodes remain project adapter work rather than fabricated demo evidence.
+The ZombieTest contains one concrete project-owned source as construction,
+causal-closure, and diagnostic evidence. Its Memory/Emotion Observer policies
+still abstain, so those sources contribute no score polish. Its project Ethics
+evaluator has one narrow rule: the zombie's own factually successful bite of a
+human supplies a restrained positive influence. The adapter stages the actual
+Succeeded Attack result at world Tick `N`, closes the experience against the
+first post-effect Agent snapshot at `N+1`, and preserves exact action, run,
+target, health, Desire-transition, and moment identities. Memory acceptance
+precedes learned-critic submission. This is explicit ZombieTest policy, not a
+portable morality or automatic extraction from arbitrary game events.
 
 ## Still deferred
 
 - automatic extraction of project Ethics context and complete causal episodes
-  from arbitrary game events;
+  from arbitrary game events beyond explicit project adapters such as the
+  ZombieTest bite;
 - an explicit external evidence-revision signal when Memory, Emotion, or project
   policy changes without a visible Key-payload change;
 - a combiner for Planner, Agent-learning, and other proposal systems beyond the

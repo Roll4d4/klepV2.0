@@ -63,6 +63,14 @@ Idle -> Enter -> Running -> Succeeded | Failed | Cancelled -> Exit -> Cleanup
 - Removal of an active Executable cancels and tears it down before removal.
 - A lifecycle exception is recorded, teardown is attempted once, and the
   exception is rethrown.
+- Once a catalog revision is accepted, every staged root removal is retired in
+  ordinal root stable-ID order even when an earlier cancellation teardown
+  faults. One fault is rethrown unchanged after all removals settle; several
+  are aggregated in stable order with the first exact failure retained in the
+  primary Tick trace. Accepted removals are not automatically retried.
+- A removal fault rejects any still-uninitialized registrations from that same
+  proposal and rebuilds the accepted structural map from the actual
+  post-removal catalog before the fault returns to the host.
 
 There are no Core `Update`, `FixedUpdate`, `ExecutableUpdates`,
 `ExecutableFixedUpdate`, or `FixedExecute` paths. Exactly one Agent exclusively

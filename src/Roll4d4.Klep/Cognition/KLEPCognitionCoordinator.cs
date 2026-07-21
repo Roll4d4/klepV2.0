@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using Roll4d4.Klep.Desire;
 using Roll4d4.Klep.Emotion;
 using Roll4d4.Klep.Ethics;
 using Roll4d4.Klep.Memory;
@@ -56,7 +57,8 @@ namespace Roll4d4.Klep.Cognition
             KLEPEthicsContextIdentity contextIdentity,
             TContext context,
             IReadOnlyList<KLEPMemoryMoment> moments,
-            KLEPMemoryActionOutcome actionOutcome = null)
+            KLEPMemoryActionOutcome actionOutcome = null,
+            KLEPDesireEffectVector desireEffects = null)
         {
             ExperienceId = KLEPCognitionValidation.RequireId(
                 experienceId,
@@ -112,6 +114,7 @@ namespace Roll4d4.Klep.Cognition
             this.moments = new ReadOnlyCollection<KLEPMemoryMoment>(
                 copiedMoments);
             ActionOutcome = actionOutcome;
+            DesireEffects = desireEffects;
         }
 
         public string ExperienceId { get; }
@@ -124,6 +127,7 @@ namespace Roll4d4.Klep.Cognition
         public TContext Context { get; }
         public IReadOnlyList<KLEPMemoryMoment> Moments => moments;
         public KLEPMemoryActionOutcome ActionOutcome { get; }
+        public KLEPDesireEffectVector DesireEffects { get; }
     }
 
     /// <summary>
@@ -139,7 +143,8 @@ namespace Roll4d4.Klep.Cognition
             KLEPEmotionSnapshot emotionSnapshot,
             KLEPMemoryExperience experience,
             KLEPMemorySnapshot memorySnapshot,
-            IReadOnlyList<KLEPCognitionStepTrace> steps)
+            IReadOnlyList<KLEPCognitionStepTrace> steps,
+            KLEPDesireEffectVector desireEffects = null)
         {
             EthicsEvaluation = ethicsEvaluation ??
                 throw new ArgumentNullException(nameof(ethicsEvaluation));
@@ -149,6 +154,7 @@ namespace Roll4d4.Klep.Cognition
                 throw new ArgumentNullException(nameof(experience));
             MemorySnapshot = memorySnapshot ??
                 throw new ArgumentNullException(nameof(memorySnapshot));
+            DesireEffects = desireEffects;
             this.steps = new ReadOnlyCollection<KLEPCognitionStepTrace>(
                 new List<KLEPCognitionStepTrace>(steps ??
                     throw new ArgumentNullException(nameof(steps))));
@@ -158,6 +164,7 @@ namespace Roll4d4.Klep.Cognition
         public KLEPEmotionSnapshot EmotionSnapshot { get; }
         public KLEPMemoryExperience Experience { get; }
         public KLEPMemorySnapshot MemorySnapshot { get; }
+        public KLEPDesireEffectVector DesireEffects { get; }
         public IReadOnlyList<KLEPCognitionStepTrace> Steps => steps;
     }
 
@@ -199,6 +206,24 @@ namespace Roll4d4.Klep.Cognition
         public KLEPMemory Memory { get; }
         public KLEPCognitionTransition<TContext> LastTransition { get; private set; }
 
+        /// <summary>
+        /// Advances the owned emotional body by one explicit consecutive Tick
+        /// when no completed causal experience is being closed. This is the
+        /// composition-owned passage-of-time seam for friction; it evaluates
+        /// no Ethics, records no Memory, and publishes no cognition transition.
+        /// </summary>
+        public KLEPEmotionSnapshot AdvanceEmotionWithoutExperience(long tick)
+        {
+            if (isProcessing)
+            {
+                throw new InvalidOperationException(
+                    "A Cognition coordinator cannot advance idle Emotion " +
+                    "while an experience is being processed.");
+            }
+
+            return Emotion.Advance(tick);
+        }
+
         public KLEPCognitionTransition<TContext> Process(
             KLEPCognitionExperienceRequest<TContext> request)
         {
@@ -216,7 +241,8 @@ namespace Roll4d4.Klep.Cognition
             isProcessing = true;
             try
             {
-                Preflight(request);
+                KLEPMemoryDesireEffectVector copiedDesireEffects =
+                    Preflight(request);
                 object emotionCheckpoint =
                     Emotion.CaptureTransactionCheckpoint();
                 object memoryCheckpoint =
@@ -243,7 +269,8 @@ namespace Roll4d4.Klep.Cognition
                         request.MemoryTick,
                         request.Moments,
                         request.ActionOutcome,
-                        new[] { ethicsRecord });
+                        new[] { ethicsRecord },
+                        desireEffects: copiedDesireEffects);
 
                     long startingEmotionTick = Emotion.Tick;
                     KLEPEmotionVector startingEmotionState = Emotion.Position;
@@ -261,7 +288,8 @@ namespace Roll4d4.Klep.Cognition
                         request.Moments,
                         request.ActionOutcome,
                         new[] { ethicsRecord },
-                        consequence);
+                        consequence,
+                        copiedDesireEffects);
                     KLEPMemorySnapshot memorySnapshot = Memory.Tick(
                         request.MemoryTick,
                         new[] { experience });
@@ -286,7 +314,8 @@ namespace Roll4d4.Klep.Cognition
                         producedEmotion,
                         experience,
                         memorySnapshot,
-                        steps);
+                        steps,
+                        request.DesireEffects);
                     LastTransition = transition;
                     return transition;
                 }
@@ -313,7 +342,8 @@ namespace Roll4d4.Klep.Cognition
             }
         }
 
-        private void Preflight(KLEPCognitionExperienceRequest<TContext> request)
+        private KLEPMemoryDesireEffectVector Preflight(
+            KLEPCognitionExperienceRequest<TContext> request)
         {
             if (Emotion.Tick == long.MaxValue ||
                 request.EmotionTick != Emotion.Tick + 1)
@@ -332,11 +362,17 @@ namespace Roll4d4.Klep.Cognition
 
             // This validates moment ordering, action causality, and the Memory
             // record clock without mutating Memory.
+            KLEPMemoryDesireEffectVector copiedDesireEffects =
+                request.DesireEffects == null
+                    ? null
+                    : KLEPMemoryDesireEffectVector.Capture(
+                        request.DesireEffects);
             var structuralExperience = new KLEPMemoryExperience(
                 request.ExperienceId,
                 request.MemoryTick,
                 request.Moments,
-                request.ActionOutcome);
+                request.ActionOutcome,
+                desireEffects: copiedDesireEffects);
             KLEPMemoryMoment prior = structuralExperience.Moments[0];
             KLEPMemoryMoment consequence = structuralExperience.Moments[
                 structuralExperience.Moments.Count - 1];
@@ -367,6 +403,8 @@ namespace Roll4d4.Klep.Cognition
                         $"Experience '{request.ExperienceId}' was already recorded.");
                 }
             }
+
+            return copiedDesireEffects;
         }
 
         private static void RequireAxes(

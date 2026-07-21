@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Roll4d4.Klep.Core;
+using Roll4d4.Klep.Desire;
 using Roll4d4.Klep.Emotion;
 using Roll4d4.Klep.Ethics;
 using Roll4d4.Klep.Memory;
@@ -16,6 +17,7 @@ internal static class Program
     {
         VerifyModelCaptureCopiesFactsAndFadesOnlyDetail();
         VerifyExperienceRequiresAValidCausalTimeline();
+        VerifyDesireEvidenceIsCopiedBoundAndArchival();
         VerifySameTickWaveChronologyIsCausal();
         VerifyEthicsEvidenceCannotPostdateProducedEmotion();
         VerifyMomentsRejectImpossiblePerceptionState();
@@ -35,7 +37,10 @@ internal static class Program
         VerifySameTickExperiencesFollowConsequenceOrder();
         VerifyArchivedPatternsCanReturnToWorkingMemory();
         VerifyRehydrationRejectsContradictoryState();
+        VerifySinglePrecisionEmotionAggregateIsNotAContradiction();
         VerifyStateRoundTripContinuesDeterministically();
+        VerifyDesireEvidenceSurvivesContinuationWithoutChangingAssociation();
+        VerifyDesireDefinitionFingerprintProtectsPublicRehydration();
         VerifyUntickedStateCanRoundTrip();
         VerifySnapshotHistoryIsBoundedAndReadOnly();
         VerifyEquivalentRunsAreDeterministic();
@@ -168,6 +173,177 @@ internal static class Program
                    new[] { prior, consequence },
                    outsideAction)) is ArgumentException,
             "A remembered action run must fit inside its remembered moments");
+    }
+
+    private static void VerifyDesireEvidenceIsCopiedBoundAndArchival()
+    {
+        KLEPMemoryMoment prior = Moment(
+            "desire.prior",
+            KLEPMemoryMomentRole.Prior,
+            2,
+            "state.hungry");
+        KLEPMemoryMoment consequence = Moment(
+            "desire.consequence",
+            KLEPMemoryMomentRole.Consequence,
+            3,
+            "state.fed");
+        var action = new KLEPMemoryActionOutcome(
+            "action.eat",
+            runIndex: 42,
+            startedTick: 2,
+            completedTick: 3,
+            terminalState: KLEPExecutableState.Succeeded,
+            exitReason: KLEPExecutableExitReason.Succeeded);
+        KLEPDesireEffectVector source = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.ActionOwned,
+            action.ExecutableStableId,
+            action.RunIndex,
+            satisfactionBefore: 0.2f,
+            satisfactionAfter: 0.8f,
+            pressureBefore: 4f,
+            pressureAfter: 1f);
+        KLEPMemoryDesireEffectVector copied =
+            KLEPMemoryDesireEffectVector.Capture(source);
+        var experience = new KLEPMemoryExperience(
+            "experience.desire",
+            3,
+            new[] { prior, consequence },
+            action,
+            desireEffects: copied);
+
+        Expect(experience.DesireEffects != null &&
+               !ReferenceEquals(experience.DesireEffects, source) &&
+               experience.DesireEffects.TransitionId == source.TransitionId &&
+               experience.DesireEffects.Effects.Count == 1,
+            "Memory retains a defensive data-first copy of optional Desire evidence");
+        KLEPMemoryDesireEffectRecord effect =
+            experience.DesireEffects.Effects[0];
+        Expect(effect.DesireStableId == "desire.food" &&
+               effect.Weight == 2f &&
+               effect.SatisfactionBefore == 0.2f &&
+               effect.SatisfactionAfter == 0.8f &&
+               effect.PressureBefore == 4f &&
+               effect.PressureAfter == 1f &&
+               effect.Effect == 0.6f &&
+               effect.ExplanationBefore ==
+                   "Fixture Desire observation." &&
+               effect.ExplanationAfter ==
+                   "Fixture Desire observation." &&
+               effect.EvidenceIdsBefore.Count == 1 &&
+               effect.EvidenceIdsAfter.Count == 1 &&
+               effect.AttributionKind ==
+                   KLEPDesireEffectAttribution.ActionOwned &&
+               effect.IsEligibleForAutomaticExpectationLearning,
+            "The archived Desire record keeps raw satisfaction, pressure, effect, and attribution without aggregate reward");
+        Expect(experience.ToGist().DesireEffects == experience.DesireEffects,
+            "Detail fading preserves the complete copied Desire vector");
+
+        KLEPDesireEffectVector wrongMoment = DesireVector(
+            "different.prior",
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.Unknown,
+            satisfactionBefore: 0.2f,
+            satisfactionAfter: 0.8f);
+        Expect(Catch(() => new KLEPMemoryExperience(
+                   "experience.desire.wrong-moment",
+                   3,
+                   new[] { prior, consequence },
+                   desireEffects:
+                       KLEPMemoryDesireEffectVector.Capture(wrongMoment)))
+               is ArgumentException,
+            "Desire evidence binds by exact boundary MomentId rather than equating subsystem Ticks");
+
+        KLEPDesireEffectVector wrongAction = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.ActionOwned,
+            "action.other",
+            action.RunIndex,
+            satisfactionBefore: 0.2f,
+            satisfactionAfter: 0.8f);
+        Expect(Catch(() => new KLEPMemoryExperience(
+                   "experience.desire.wrong-action",
+                   3,
+                   new[] { prior, consequence },
+                   action,
+                   desireEffects:
+                       KLEPMemoryDesireEffectVector.Capture(wrongAction)))
+               is ArgumentException,
+            "ActionOwned Desire evidence must match the factual action stable ID and run index");
+
+        KLEPDesireEffectVector external = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.External,
+            satisfactionBefore: 0.2f,
+            satisfactionAfter: 0.8f);
+        var externalExperience = new KLEPMemoryExperience(
+            "experience.desire.external",
+            3,
+            new[] { prior, consequence },
+            desireEffects: KLEPMemoryDesireEffectVector.Capture(external));
+        Expect(!externalExperience.DesireEffects.Effects[0]
+                   .IsEligibleForAutomaticExpectationLearning,
+            "External Desire effects remain valid facts without automatic-learning qualification");
+
+        var repeatedLabelAttribution =
+            new KLEPMemoryDesireAttributionRecord(
+                KLEPDesireEffectAttribution.Unknown,
+                "fixture.repeated-snapshot-label");
+        var repeatedSnapshotLabel = new KLEPMemoryDesireEffectVector(
+            "desire.transition.repeated-label",
+            "desire.owner",
+            "klep.desire.definitions.v1|0",
+            new KLEPMemoryDesireObservationRecord(
+                "snapshot.inspectable-label",
+                300,
+                prior.MomentId,
+                "context.prior",
+                "fixture.context",
+                "1"),
+            new KLEPMemoryDesireObservationRecord(
+                "snapshot.inspectable-label",
+                301,
+                consequence.MomentId,
+                "context.consequence",
+                "fixture.context",
+                "1"),
+            repeatedLabelAttribution,
+            Array.Empty<KLEPMemoryDesireEffectRecord>());
+        var repeatedLabelExperience = new KLEPMemoryExperience(
+            "experience.desire.repeated-label",
+            3,
+            new[] { prior, consequence },
+            desireEffects: repeatedSnapshotLabel);
+        Expect(repeatedLabelExperience.DesireEffects.Prior.SnapshotId ==
+                   repeatedLabelExperience.DesireEffects.Consequence.SnapshotId &&
+               repeatedLabelExperience.DesireEffects.Prior.DesireTick <
+                   repeatedLabelExperience.DesireEffects.Consequence.DesireTick,
+            "Memory treats SnapshotId as an inspectable label and uses owner plus ordered Desire Tick and MomentId binding for observation identity");
+
+        KLEPMemoryDesireAttributionRecord attribution =
+            KLEPMemoryDesireAttributionRecord.Capture(source.Attribution);
+        Expect(Catch(() => new KLEPMemoryDesireEffectRecord(
+                   "desire.invalid",
+                   "1",
+                   "evaluator.invalid",
+                   "1",
+                   1f,
+                   0.2f,
+                   0.8f,
+                   0.8f,
+                   0.2f,
+                   1f,
+                   1f,
+                   effect: 0.5f,
+                   explanationBefore: "Before.",
+                   explanationAfter: "After.",
+                   evidenceIdsBefore: Array.Empty<string>(),
+                   evidenceIdsAfter: Array.Empty<string>(),
+                   attribution)) is ArgumentException,
+            "Public Memory reconstruction rejects a Desire effect inconsistent with its raw satisfactions");
     }
 
     private static void VerifySameTickWaveChronologyIsCausal()
@@ -1044,10 +1220,41 @@ internal static class Program
             captured.Clusters,
             captured.SeenExperienceIds,
             impossibleHistory,
-            captured.LastTransitions);
+            captured.LastTransitions,
+            captured.SchemaVersion);
         Expect(Catch(() => KLEPMemory.Restore(impossibleState))
                is ArgumentException,
             "Restore deep-validates earlier diagnostic snapshots instead of trusting only the current tail");
+    }
+
+    private static void
+        VerifySinglePrecisionEmotionAggregateIsNotAContradiction()
+    {
+        var memory = new KLEPMemory(
+            "owner.single-aggregate",
+            Configuration(initialHeat: 2f, coolingPerTick: 0.01f));
+        var producedVelocity = new KLEPEmotionVector(
+            0.20357616f,
+            0.081430465f);
+        KLEPMemorySnapshot snapshot = memory.Tick(2, new[]
+        {
+            Experience(
+                "single-aggregate.1",
+                2,
+                new[] { "context.single-aggregate" },
+                new[] { "result.single-aggregate" },
+                "action.single-aggregate",
+                producedEmotionX: 0.25f,
+                producedVelocityX: producedVelocity.X,
+                producedEmotionY: 0.10f,
+                producedVelocityY: producedVelocity.Y)
+        });
+
+        KLEPMemoryClusterSnapshot cluster = snapshot.Clusters[0];
+        Expect(cluster.ProducedEmotionCount == 1 &&
+               cluster.ProducedSpeedSum == producedVelocity.Magnitude &&
+               cluster.AverageProducedSpeed == producedVelocity.Magnitude,
+            "A factual float Magnitude survives its double aggregate consistency proof");
     }
 
     private static void VerifyStateRoundTripContinuesDeterministically()
@@ -1099,6 +1306,18 @@ internal static class Program
                typeof(KLEPMemoryEthicsRecord).GetConstructors().Length > 0 &&
                typeof(KLEPMemoryEthicsTraceRecord).GetConstructors().Length > 0,
             "A project-owned persistence adapter can publicly reconstruct every non-Core Memory state layer");
+        System.Reflection.ConstructorInfo[] stateConstructors =
+            typeof(KLEPMemoryState).GetConstructors();
+        System.Reflection.ParameterInfo[] stateParameters =
+            stateConstructors[0].GetParameters();
+        Expect(stateConstructors.Length == 1 &&
+               stateParameters[stateParameters.Length - 2].Name ==
+                   "lastTransitions" &&
+               !stateParameters[stateParameters.Length - 2].HasDefaultValue &&
+               stateParameters[stateParameters.Length - 1].Name ==
+                   "schemaVersion" &&
+               !stateParameters[stateParameters.Length - 1].HasDefaultValue,
+            "Public Memory reconstruction requires decoded transitions and schema version explicitly instead of silently stamping legacy data as v2");
 
         KLEPMemoryExperience next = Experience(
             "restore.2", 3,
@@ -1112,6 +1331,167 @@ internal static class Program
         Expect(Describe(originalNext) == Describe(restoredNext) &&
                Describe(original.CaptureState()) == Describe(restored.CaptureState()),
             "Original and restored Memory continue identically from the same future input");
+        Expect(Catch(() => new KLEPMemoryState(
+                   captured.OwnerId,
+                   captured.Tick,
+                   captured.NextClusterSequence,
+                   captured.Configuration,
+                   captured.Clusters,
+                   captured.SeenExperienceIds,
+                   captured.SnapshotHistory,
+                   captured.LastTransitions,
+                   schemaVersion: 1)) is NotSupportedException,
+            "Memory schema v2 rejects an unversioned legacy continuation instead of silently dropping optional Desire evidence");
+    }
+
+    private static void
+        VerifyDesireEvidenceSurvivesContinuationWithoutChangingAssociation()
+    {
+        var memory = new KLEPMemory(
+            "owner.desire-continuation",
+            Configuration(initialHeat: 2f, coolingPerTick: 0.1f));
+        KLEPMemoryMoment prior = Moment(
+            "desire.persist.prior",
+            KLEPMemoryMomentRole.Prior,
+            2,
+            "state.hungry");
+        KLEPMemoryMoment consequence = Moment(
+            "desire.persist.consequence",
+            KLEPMemoryMomentRole.Consequence,
+            3,
+            "state.fed");
+        var outcome = new KLEPMemoryActionOutcome(
+            "action.eat",
+            1,
+            2,
+            3,
+            KLEPExecutableState.Succeeded,
+            KLEPExecutableExitReason.Succeeded);
+        var first = new KLEPMemoryExperience(
+            "experience.desire.persist.1",
+            3,
+            new[] { prior, consequence },
+            outcome,
+            desireEffects: KLEPMemoryDesireEffectVector.Capture(
+                DesireVector(
+                    prior.MomentId,
+                    consequence.MomentId,
+                    KLEPDesireEffectAttribution.ActionOwned,
+                    outcome.ExecutableStableId,
+                    outcome.RunIndex,
+                    satisfactionBefore: 0f,
+                    satisfactionAfter: 1f)));
+        memory.Tick(3, new[] { first });
+
+        KLEPMemoryExperience second = Experience(
+            "experience.desire.persist.2",
+            4,
+            new[] { "state.hungry" },
+            new[] { "state.fed" },
+            "action.eat");
+        KLEPMemorySnapshot reinforced = memory.Tick(4, new[] { second });
+        Expect(reinforced.Clusters.Count == 1 &&
+               reinforced.Clusters[0].EncounterCount == 2,
+            "Desire evidence does not enter projector association or split an otherwise matching factual pattern");
+
+        KLEPMemoryState state = memory.CaptureState();
+        KLEPMemory restored = KLEPMemory.Restore(state);
+        KLEPMemoryExperience restoredFirst = FindEpisode(
+            restored.Snapshot.Clusters[0].RecentEpisodes,
+            first.ExperienceId);
+        Expect(state.SchemaVersion == 2 &&
+               restoredFirst.DesireEffects != null &&
+               restoredFirst.DesireEffects.Effects.Count == 1 &&
+               restoredFirst.DesireEffects.Effects[0].Effect == 1f,
+            "Memory schema v2 continuation preserves optional Desire evidence exactly");
+        Expect(typeof(KLEPMemoryDesireObservationRecord).GetConstructors().Length > 0 &&
+               typeof(KLEPMemoryDesireAttributionRecord).GetConstructors().Length > 0 &&
+               typeof(KLEPMemoryDesireEffectRecord).GetConstructors().Length > 0 &&
+               typeof(KLEPMemoryDesireEffectVector).GetConstructors().Length > 0,
+            "A persistence adapter can publicly reconstruct every Memory-owned Desire record layer");
+    }
+
+    private static void
+        VerifyDesireDefinitionFingerprintProtectsPublicRehydration()
+    {
+        KLEPMemoryMoment prior = Moment(
+            "desire.fingerprint.prior",
+            KLEPMemoryMomentRole.Prior,
+            5,
+            "state.before");
+        KLEPMemoryMoment consequence = Moment(
+            "desire.fingerprint.consequence",
+            KLEPMemoryMomentRole.Consequence,
+            6,
+            "state.after");
+        var outcome = new KLEPMemoryActionOutcome(
+            "action.fingerprint",
+            77,
+            5,
+            6,
+            KLEPExecutableState.Succeeded,
+            KLEPExecutableExitReason.Succeeded);
+        KLEPMemoryDesireEffectVector source =
+            KLEPMemoryDesireEffectVector.Capture(DesireVector(
+                prior.MomentId,
+                consequence.MomentId,
+                KLEPDesireEffectAttribution.ActionOwned,
+                outcome.ExecutableStableId,
+                outcome.RunIndex,
+                satisfactionBefore: 0.25f,
+                satisfactionAfter: 0.75f,
+                includeSecondDesire: true));
+
+        Expect(Catch(() => ReconstructDesireVector(
+                   source,
+                   new[] { 0 })) is ArgumentException,
+            "Public Desire-vector rehydration rejects a dropped definition whose frozen fingerprint still declares the complete set");
+        Expect(Catch(() => ReconstructDesireVector(
+                   source,
+                   new[] { 1, 0 })) is ArgumentException,
+            "Public Desire-vector rehydration rejects reordered definition evidence");
+        Expect(Catch(() => ReconstructDesireVector(
+                   source,
+                   new[] { 0, 1 },
+                   substituteFirstStableId: "desire.substituted"))
+               is ArgumentException,
+            "Public Desire-vector rehydration rejects substituted definition identity");
+
+        KLEPMemoryDesireEffectVector reconstructed =
+            ReconstructDesireVector(source, new[] { 0, 1 });
+        var experience = new KLEPMemoryExperience(
+            "experience.desire.fingerprint",
+            6,
+            new[] { prior, consequence },
+            outcome,
+            desireEffects: reconstructed);
+        var memory = new KLEPMemory(
+            "owner.desire-fingerprint",
+            Configuration());
+        memory.Tick(6, new[] { experience });
+        KLEPMemoryState captured = memory.CaptureState();
+        var reconstructedState = new KLEPMemoryState(
+            captured.OwnerId,
+            captured.Tick,
+            captured.NextClusterSequence,
+            captured.Configuration,
+            captured.Clusters,
+            captured.SeenExperienceIds,
+            captured.SnapshotHistory,
+            captured.LastTransitions,
+            captured.SchemaVersion);
+        KLEPMemory restored = KLEPMemory.Restore(reconstructedState);
+        KLEPMemoryExperience restoredExperience = FindEpisode(
+            restored.Snapshot.Clusters[0].RecentEpisodes,
+            experience.ExperienceId);
+        Expect(restoredExperience.DesireEffects.Effects.Count == 2 &&
+               restoredExperience.DesireEffects.Effects[0].DesireStableId ==
+                   "desire.food" &&
+               restoredExperience.DesireEffects.Effects[1].DesireStableId ==
+                   "desire.safety" &&
+               restoredExperience.DesireEffects.DefinitionFingerprint ==
+                   source.DefinitionFingerprint,
+            "A fully public-reconstructed nested Desire vector preserves its complete ordered definition evidence through schema-v2 restore");
     }
 
     private static void VerifyUntickedStateCanRoundTrip()
@@ -1254,7 +1634,9 @@ internal static class Program
         string actionStableId,
         float? producedEmotionX = null,
         float producedVelocityX = 0f,
-        IReadOnlyList<string> duringKeys = null)
+        IReadOnlyList<string> duringKeys = null,
+        float producedEmotionY = 0f,
+        float producedVelocityY = 0f)
     {
         if (tick <= 0)
         {
@@ -1304,11 +1686,17 @@ internal static class Program
                 priorTick,
                 tick,
                 KLEPEmotionVector.Zero,
-                new KLEPEmotionVector(producedEmotionX.Value, 0f),
+                new KLEPEmotionVector(
+                    producedEmotionX.Value,
+                    producedEmotionY),
                 startingVelocity: KLEPEmotionVector.Zero,
                 producedIntegratedVelocity:
-                    new KLEPEmotionVector(producedVelocityX, 0f),
-                producedVelocity: new KLEPEmotionVector(producedVelocityX, 0f),
+                    new KLEPEmotionVector(
+                        producedVelocityX,
+                        producedVelocityY),
+                producedVelocity: new KLEPEmotionVector(
+                    producedVelocityX,
+                    producedVelocityY),
                 producedNetInfluence: KLEPEmotionVector.Zero);
         return new KLEPMemoryExperience(
             experienceId,
@@ -1414,6 +1802,150 @@ internal static class Program
         }
 
         return new KLEPMemoryMoment(momentId, role, tick, 0, records);
+    }
+
+    private static KLEPDesireEffectVector DesireVector(
+        string priorMomentId,
+        string consequenceMomentId,
+        KLEPDesireEffectAttribution attributionKind,
+        string actionStableId = null,
+        long? actionRunIndex = null,
+        float satisfactionBefore = 0f,
+        float satisfactionAfter = 1f,
+        float pressureBefore = 1f,
+        float pressureAfter = 1f,
+        bool includeSecondDesire = false)
+    {
+        var definitions = new List<KLEPDesireDefinition<DesireContext>>
+        {
+            new KLEPDesireDefinition<DesireContext>(
+                "desire.food",
+                "1",
+                2f,
+                new DesireEvaluator())
+        };
+        if (includeSecondDesire)
+        {
+            definitions.Add(new KLEPDesireDefinition<DesireContext>(
+                "desire.safety",
+                "3",
+                4f,
+                new DesireEvaluator()));
+        }
+
+        var system = new KLEPDesireSystem<DesireContext>(
+            "desire.owner",
+            definitions);
+        var identity = new KLEPDesireContextIdentity(
+            "desire.context",
+            "fixture.desire-context",
+            "1");
+        KLEPDesireSnapshot prior = system.Observe(
+            new KLEPDesireObservationRequest<DesireContext>(
+                "desire.snapshot.prior",
+                100,
+                priorMomentId,
+                identity,
+                new DesireContext(
+                    satisfactionBefore,
+                    pressureBefore)));
+        KLEPDesireSnapshot consequence = system.Observe(
+            new KLEPDesireObservationRequest<DesireContext>(
+                "desire.snapshot.consequence",
+                101,
+                consequenceMomentId,
+                identity,
+                new DesireContext(
+                    satisfactionAfter,
+                    pressureAfter)));
+        var attribution = new KLEPDesireAttributionEvidence(
+            attributionKind,
+            "fixture.desire-attribution",
+            actionStableId,
+            actionRunIndex,
+            new[] { "fixture.desire-evidence" });
+        return system.EvaluateTransition(new KLEPDesireTransitionRequest(
+            "desire.transition",
+            prior,
+            consequence,
+            attribution));
+    }
+
+    private static KLEPMemoryDesireEffectVector ReconstructDesireVector(
+        KLEPMemoryDesireEffectVector source,
+        IReadOnlyList<int> effectOrder,
+        string substituteFirstStableId = null)
+    {
+        var attribution = new KLEPMemoryDesireAttributionRecord(
+            source.Attribution.Kind,
+            source.Attribution.ProvenanceId,
+            source.Attribution.ActionStableId,
+            source.Attribution.ActionRunIndex,
+            source.Attribution.EvidenceIds);
+        var effects = new List<KLEPMemoryDesireEffectRecord>(
+            effectOrder.Count);
+        for (int i = 0; i < effectOrder.Count; i++)
+        {
+            KLEPMemoryDesireEffectRecord effect =
+                source.Effects[effectOrder[i]];
+            effects.Add(new KLEPMemoryDesireEffectRecord(
+                i == 0 && !string.IsNullOrWhiteSpace(substituteFirstStableId)
+                    ? substituteFirstStableId
+                    : effect.DesireStableId,
+                effect.DesireVersion,
+                effect.EvaluatorId,
+                effect.EvaluatorVersion,
+                effect.Weight,
+                effect.SatisfactionBefore,
+                effect.SatisfactionAfter,
+                effect.DeficitBefore,
+                effect.DeficitAfter,
+                effect.PressureBefore,
+                effect.PressureAfter,
+                effect.Effect,
+                effect.ExplanationBefore,
+                effect.ExplanationAfter,
+                effect.EvidenceIdsBefore,
+                effect.EvidenceIdsAfter,
+                attribution));
+        }
+
+        return new KLEPMemoryDesireEffectVector(
+            source.TransitionId,
+            source.OwnerId,
+            source.DefinitionFingerprint,
+            new KLEPMemoryDesireObservationRecord(
+                source.Prior.SnapshotId,
+                source.Prior.DesireTick,
+                source.Prior.ObservedMomentId,
+                source.Prior.ContextId,
+                source.Prior.ContextSchemaId,
+                source.Prior.ContextSchemaVersion),
+            new KLEPMemoryDesireObservationRecord(
+                source.Consequence.SnapshotId,
+                source.Consequence.DesireTick,
+                source.Consequence.ObservedMomentId,
+                source.Consequence.ContextId,
+                source.Consequence.ContextSchemaId,
+                source.Consequence.ContextSchemaVersion),
+            attribution,
+            effects);
+    }
+
+    private static KLEPMemoryExperience FindEpisode(
+        IReadOnlyList<KLEPMemoryExperience> episodes,
+        string experienceId)
+    {
+        for (int i = 0; i < episodes.Count; i++)
+        {
+            if (episodes[i].ExperienceId == experienceId)
+            {
+                return episodes[i];
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Expected retained experience '{experienceId}'.");
     }
 
     private static bool HasTransition(
@@ -1633,6 +2165,35 @@ internal static class Program
 
     private static string Double(double value) =>
         value.ToString("R", CultureInfo.InvariantCulture);
+
+    private sealed class DesireContext
+    {
+        internal DesireContext(float satisfaction, float pressure)
+        {
+            Satisfaction = satisfaction;
+            Pressure = pressure;
+        }
+
+        internal float Satisfaction { get; }
+        internal float Pressure { get; }
+    }
+
+    private sealed class DesireEvaluator : IKLEPDesireEvaluator<DesireContext>
+    {
+        public string EvaluatorId => "fixture.desire-evaluator";
+        public string EvaluatorVersion => "1";
+
+        public KLEPDesireAssessment Evaluate(
+            DesireContext context,
+            long desireTick)
+        {
+            return new KLEPDesireAssessment(
+                context.Satisfaction,
+                context.Pressure,
+                "Fixture Desire observation.",
+                new[] { "fixture.desire-state" });
+        }
+    }
 
     private static Exception Catch(Action action)
     {

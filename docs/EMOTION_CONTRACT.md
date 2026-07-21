@@ -72,6 +72,21 @@ Unchanged position is not synonymous with rest. At a graph boundary, outward
 velocity may still be present and undergoing friction while clamping prevents
 position from changing.
 
+## Composition-owned no-experience Tick
+
+An assembled cognition composition must continue emotional motion even when no
+causal episode closes. `AdvanceEmotionWithoutExperience` supplies exactly one
+consecutive Emotion Tick with an empty influence set. It therefore applies the
+same integration and friction rules above, but it does not evaluate Ethics,
+advance Memory or Desire, invent an event, or publish a cognition transition.
+
+For any native Emotion Tick, the trusted host chooses either this friction-only
+composition path or the normal cognition `Process` path carrying evaluated
+influence, never both. The host still may not advance the retained Emotion
+directly. The ZombieTest binds this choice to its explicit world loop; other
+projects must declare their own Agent/world phase without claiming a universal
+global clock.
+
 ## Snapshots
 
 One snapshot records:
@@ -104,17 +119,20 @@ This Emotion slice is an isolated pure runtime assembly. It does not:
 - persist long-term Memory; or
 - invoke the Observer's structural mapper, projection, or optional deliberation.
 
-Any future behavioral influence must occur only after ordinary eligibility has
-been established and requires an approved selection contract.
+Any behavioral influence derived from Emotion must cross an accepted read-only
+evidence boundary only after ordinary eligibility has been established. Emotion
+itself never supplies eligibility or a selection command.
 
 ## Still open
 
 - The project-owned context schemas and policy implementations that use the
   portable Ethics evaluation interface.
-- The owner and exact phase that advances Emotion relative to the owning
-  Agent's Tick and its guarded Neuron Local boundary.
-- The host boundary that closes a Memory experience only after the relevant
-  causal Executable and produced Emotion consequence are both observable.
+- The project-specific phase that advances Emotion relative to an owning
+  Agent's Tick and guarded Neuron Local boundary outside the accepted ZombieTest
+  ordering.
+- Generic adapters that close a Memory experience after the relevant causal
+  Executable and produced Emotion consequence become observable; the ZombieTest
+  now defines only its factual bite adapter.
 - The desired-region or stabilization policy used to recognize that an Agent
   has remained somewhere it wants to leave.
 - Whether correction ranks eligible Executables, eligible Goals, or another

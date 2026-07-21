@@ -17,8 +17,11 @@ These are nearest conventional analogues, not exact equivalences:
 | Executable | Action, sensor, derivation rule, or behavior node | A registered behavior with Solo/Tandem mode, declared outputs, explicit lifecycle, teardown, and trace evidence |
 | Neuron | Blackboard plus behavior catalog | Passively owns Key stores and the registered root Executable set; it does not schedule or advance behavior |
 | Goal | Composite behavior or scored utility action | Exclusively owns ordered child layers and may run in Solo or Tandem; it is not a search planner |
-| Agent | Deterministic scheduler plus optional tabular learner | Exclusively owns the Tick path, all Executable runtime state, arbitration, recursive map, and decision history |
-| Observer | Structural and advisory policy layer | Maps the catalog and may provide complete candidate projections or explained influence only for roots whose Locks already passed |
+| Agent | Deterministic scheduler plus optional evidence consumers | Exclusively owns the Tick path, all Executable runtime state, arbitration, Intention state, recursive map, and decision history |
+| Observer | Structural and advisory policy layer | Maps the catalog, queries read-only learned evidence, and may provide complete candidate projections or explained influence only for roots whose Locks already passed |
+| Desire | Project-authored terminal-value evaluator | Evaluates satisfaction, deficit, pressure, and raw transition effects; it neither learns nor selects |
+| Learned Expectations | Empirical critic | Retains observed effects and confidence independently of terminal value and execution |
+| Intention | Commitment ledger | Records the root Goal the Agent actually adopted and its later runtime disposition; it is not a planner |
 
 If a team cannot map this vocabulary onto concepts it already understands, it
 should not adopt KLEP merely because the names sound cognitive.
@@ -36,7 +39,14 @@ many other systems:
   observe the same snapshot, publish together, and may expose a new snapshot to
   previously blocked Tandems before Solo selection.
 - **Eligibility before influence.** Authored Locks decide possibility before
-  utility, Agent learning, Memory, Emotion, or Observer evidence can rank it.
+  utility, Agent learning, learned Desire effects, Memory, Emotion, or Observer
+  evidence can rank it.
+- **Separated value, expectation, and choice.** Desire states what matters,
+  Learned Expectations records what tended to follow, and only the Agent may
+  combine frozen evidence to choose among already-eligible behavior.
+- **Inspectable commitment.** Intention records actual Goal adoption,
+  suspension, resumption, completion, and abandonment without silently adding
+  stickiness or planning authority.
 - **Explicit lifecycle and teardown.** Enter, Running, terminal state, Exit,
   Cleanup, cancellation, and faults are named and traced.
 - **Transactional output validation.** A complete output batch is preflighted;

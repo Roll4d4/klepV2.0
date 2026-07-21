@@ -14,13 +14,14 @@ namespace Roll4d4.Klep.Cognition
     /// from the read-only Memory and Emotion policy adapters.
     ///
     /// The composition still does not construct or Tick an Agent or Neuron.
-    /// A host injects Observer into its Agent boundary and explicitly calls
-    /// Process only when it possesses a completed causal experience.
+    /// A host injects Observer into its Agent boundary, calls Process only
+    /// when it possesses a completed causal experience, and may call
+    /// AdvanceEmotionWithoutExperience for an explicitly owned no-event Tick.
     /// "Owns" here means that this root retains and consistently wires the
     /// injected subsystem instances; it is not exclusive capability ownership.
     /// Because those portable subsystem APIs are public and mutable, the host
-    /// must treat Process as their causal write boundary and avoid advancing
-    /// Emotion or Memory independently.
+    /// must treat those two composition methods as their causal write boundary
+    /// and avoid advancing Emotion or Memory independently.
     /// </summary>
     public sealed class KLEPCognitionComposition<TContext>
     {
@@ -34,7 +35,8 @@ namespace Roll4d4.Klep.Cognition
             IKLEPEmotionObserverEvidencePolicy emotionPolicy,
             IEnumerable<IKLEPObserverEvidenceSource> additionalEvidenceSources = null,
             KLEPObserverConfiguration observerConfiguration = null,
-            int maximumMemoryMatches = 8)
+            int maximumMemoryMatches = 8,
+            IKLEPLearnedExpectationsView learnedExpectations = null)
         {
             Coordinator = new KLEPCognitionCoordinator<TContext>(
                 ethics,
@@ -68,7 +70,8 @@ namespace Roll4d4.Klep.Cognition
                 observerStableId,
                 observerVersion,
                 sources,
-                observerConfiguration);
+                observerConfiguration,
+                learnedExpectations);
         }
 
         public KLEPCognitionCoordinator<TContext> Coordinator { get; }
@@ -83,6 +86,16 @@ namespace Roll4d4.Klep.Cognition
             KLEPCognitionExperienceRequest<TContext> request)
         {
             return Coordinator.Process(request);
+        }
+
+        /// <summary>
+        /// Advances only Emotion for one caller-owned passage-of-time Tick.
+        /// Projects use this instead of mutating the retained Emotion directly
+        /// when no factual experience is ready for Process.
+        /// </summary>
+        public KLEPEmotionSnapshot AdvanceEmotionWithoutExperience(long tick)
+        {
+            return Coordinator.AdvanceEmotionWithoutExperience(tick);
         }
     }
 }

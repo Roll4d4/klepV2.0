@@ -6,3 +6,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("KlepAgentSmoke")]
 [assembly: InternalsVisibleTo("KlepKeySmoke")]
 [assembly: InternalsVisibleTo("KlepObserverSmoke")]
+[assembly: InternalsVisibleTo("KlepMemorySmoke")]

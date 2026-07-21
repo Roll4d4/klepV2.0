@@ -45,7 +45,8 @@ namespace Roll4d4.Klep.Core
         OutputApplication,
         AttractionEvaluation,
         DeclaredOutputValidation,
-        ProjectedSatisfactionEvaluation
+        ProjectedSatisfactionEvaluation,
+        LearnedDesireExpectationEvaluation
     }
 
     // Goal runners use this internal envelope to preserve the actual child

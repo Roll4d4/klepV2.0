@@ -19,6 +19,13 @@ internal static class Program
         VerifyProjectedSatisfactionUsesPostTandemSnapshot();
         VerifyMismatchedProjectionFaultsAndIsTraced();
         VerifyAgentScoreLayersEndWithOptionalObserverPolish();
+        VerifyLearnedDesirePositiveEvidenceReordersEligibleSolos();
+        VerifyLearnedDesireNegativeUnknownAndTieSemantics();
+        VerifyLearnedDesireReceivesPostTandemEligibleRootsOnly();
+        VerifyLearnedDesirePrecedesObserverPolish();
+        VerifyMalformedLearnedDesireBatchFaultsAtomically();
+        VerifyLearnedDesireBindingMutationFaults();
+        VerifyLearnedDesireOverflowFaultsAtomically();
         VerifyStructuralMapCapturesRecursiveCatalog();
         VerifyStructuralMapFingerprintAndProjectionAreDeterministic();
         VerifyStructuralMapReturnsValidationDiagnostics();
@@ -654,6 +661,357 @@ internal static class Program
                polished.Decision.GuidanceAdvice.PreObserverScore == 6f &&
                polished.Decision.GuidanceAdvice.EffectiveScore == 10f,
             "One-use Observer advice reports the complete pre-polish and effective Agent scores");
+    }
+
+    private static void VerifyLearnedDesirePositiveEvidenceReordersEligibleSolos()
+    {
+        const string promotedId = "agent.learned.positive.a";
+        const string baselineId = "agent.learned.positive.b";
+        var promoted = new ProbeExecutable(
+            Definition(promotedId, 2f),
+            KLEPExecutableTickStatus.Succeeded);
+        var baseline = new ProbeExecutable(
+            Definition(baselineId, 4f),
+            KLEPExecutableTickStatus.Succeeded);
+        var neuron = new KLEPNeuron("agent.learned.positive.neuron");
+        neuron.RegisterExecutable(baseline);
+        neuron.RegisterExecutable(promoted);
+        var policy = new RecordingLearnedDesirePolicy(
+            (request, candidate) =>
+                StringComparer.Ordinal.Equals(
+                    candidate.ExecutableStableId, promotedId)
+                    ? 3f
+                    : 0f);
+        var agent = new KLEPAgent(
+            neuron,
+            null,
+            null,
+            KLEPBaselineStructuralObserver.Instance,
+            null,
+            null,
+            policy);
+
+        KLEPAgentTickTrace trace = agent.Tick();
+        CandidateEvaluation promotedCandidate = Candidate(trace, promotedId);
+        CandidateEvaluation baselineCandidate = Candidate(trace, baselineId);
+        KLEPExecutableScoreComponent learned =
+            promotedCandidate.ScoreEvaluation.Components[
+                promotedCandidate.ScoreEvaluation.Components.Count - 1];
+
+        Expect(trace.Decision.SelectedExecutableId == promotedId &&
+               promotedCandidate.Score == 5f &&
+               baselineCandidate.Score == 4f,
+            "Positive learned Desire evidence can reorder already-eligible Solo roots");
+        Expect(learned.Kind ==
+                   KLEPExecutableScoreComponentKind.LearnedDesireExpectation &&
+               learned.LearnedDesireExpectation != null &&
+               learned.LearnedDesireExpectation.ScoreContribution == 3f &&
+               learned.LearnedDesireExpectation.Desires.Count == 1 &&
+               learned.LearnedDesireExpectation.IsAgentEvidenceBound &&
+               learned.LearnedDesireExpectation.AgentCycleIndex ==
+                   trace.Decision.CycleIndex &&
+               learned.LearnedDesireExpectation.CatalogFingerprint.Equals(
+                   agent.ExecutableMap.Fingerprint),
+            "The learned score component preserves its typed candidate and per-Desire evidence");
+        Expect(policy.EvaluateCount == 1 &&
+               policy.LastRequest.Candidates.Count == 2 &&
+               ReferenceEquals(
+                   policy.LastRequest.AcceptedStructuralMap,
+                   agent.ExecutableMap) &&
+               policy.LastRequest.Candidates[0].ExecutableStableId == promotedId &&
+               policy.LastRequest.Candidates[0].PrePolicyScore == 2f &&
+               policy.LastRequest.Candidates[0].RootTenureId.Length > 0,
+            "One batch receives the accepted map and stable ordered eligible root evidence");
+    }
+
+    private static void VerifyLearnedDesireNegativeUnknownAndTieSemantics()
+    {
+        const string discouragedId = "agent.learned.negative.action";
+        var discouragedNeuron = new KLEPNeuron(
+            "agent.learned.negative.neuron");
+        discouragedNeuron.RegisterExecutable(new ProbeExecutable(
+            Definition(discouragedId, 1f),
+            KLEPExecutableTickStatus.Succeeded));
+        var negativePolicy = new RecordingLearnedDesirePolicy(
+            (request, candidate) => -2f);
+        var discouragedAgent = new KLEPAgent(
+            discouragedNeuron,
+            new KLEPAgentConfiguration(actionCertaintyThreshold: 0f),
+            null,
+            KLEPBaselineStructuralObserver.Instance,
+            null,
+            null,
+            negativePolicy);
+
+        KLEPAgentTickTrace discouraged = discouragedAgent.Tick();
+        Expect(discouraged.Decision.SelectedExecutableId == null &&
+               discouraged.Decision.IsPatient &&
+               Candidate(discouraged, discouragedId).Score == -1f,
+            "Negative learned Desire evidence can move a candidate below the unchanged certainty threshold");
+
+        const string unknownId = "agent.learned.unknown.action";
+        var unknownNeuron = new KLEPNeuron("agent.learned.unknown.neuron");
+        unknownNeuron.RegisterExecutable(new ProbeExecutable(
+            Definition(unknownId, 3f),
+            KLEPExecutableTickStatus.Succeeded));
+        var unknownPolicy = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 0f,
+            zeroDisposition:
+                KLEPLearnedDesireContributionDisposition.UnknownEvidence);
+        var unknownAgent = new KLEPAgent(
+            unknownNeuron,
+            null,
+            null,
+            KLEPBaselineStructuralObserver.Instance,
+            null,
+            null,
+            unknownPolicy);
+        KLEPAgentTickTrace unknown = unknownAgent.Tick();
+        KLEPLearnedDesireCandidateEvaluation unknownEvaluation =
+            Candidate(unknown, unknownId).ScoreEvaluation.Components[1]
+                .LearnedDesireExpectation;
+        Expect(Candidate(unknown, unknownId).Score == 3f &&
+               unknownEvaluation.ScoreContribution == 0f &&
+               unknownEvaluation.Desires[0].Disposition ==
+                   KLEPLearnedDesireContributionDisposition.UnknownEvidence,
+            "Unknown evidence is explicitly traced and preserves authored attraction exactly");
+
+        const string currentId = "agent.learned.tie.z-current";
+        const string challengerId = "agent.learned.tie.a-challenger";
+        var current = new ProbeExecutable(
+            Definition(currentId, 3f), KLEPExecutableTickStatus.Running);
+        var challenger = new ProbeExecutable(
+            Definition(challengerId, 2f), KLEPExecutableTickStatus.Running);
+        var tieNeuron = new KLEPNeuron("agent.learned.tie.neuron");
+        tieNeuron.RegisterExecutable(current);
+        tieNeuron.RegisterExecutable(challenger);
+        var tiePolicy = new RecordingLearnedDesirePolicy(
+            (request, candidate) =>
+                request.CurrentSnapshot.Tick > 1 &&
+                StringComparer.Ordinal.Equals(
+                    candidate.ExecutableStableId, challengerId)
+                    ? 1f
+                    : 0f);
+        var tieAgent = new KLEPAgent(
+            tieNeuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, tiePolicy);
+        tieAgent.Tick();
+        KLEPAgentTickTrace tied = tieAgent.Tick();
+        Expect(tied.Decision.SelectedExecutableId == currentId &&
+               tieAgent.CurrentSoloExecutableId == currentId &&
+               tiePolicy.LastRequest.Candidates[1].IsCurrentRunning,
+            "A learned-score tie retains the Running Solo under the existing strict interruption rule");
+    }
+
+    private static void VerifyLearnedDesireReceivesPostTandemEligibleRootsOnly()
+    {
+        const string soloId = "agent.learned.boundary.solo";
+        const string lockedId = "agent.learned.boundary.locked";
+        const string tandemId = "agent.learned.boundary.tandem";
+        KLEPKeyDefinition sensed = Key("agent.learned.boundary.sensed");
+        var tandem = new ProbeExecutable(
+            Definition(
+                tandemId,
+                100f,
+                KLEPExecutionMode.Tandem,
+                declaredOutputs: new[] { sensed }),
+            KLEPExecutableTickStatus.Succeeded,
+            sensed,
+            emitOnTick: 1);
+        var solo = new ProbeExecutable(
+            Definition(soloId, 2f), KLEPExecutableTickStatus.Succeeded);
+        var locked = new ProbeExecutable(
+            new KLEPExecutableDefinition(
+                lockedId,
+                lockedId,
+                KLEPExecutableKind.Action,
+                validationLocks: new[]
+                {
+                    new KLEPLock(
+                        "agent.learned.boundary.closed-lock",
+                        "closed",
+                        new KLEPKeyPresent("agent.learned.boundary.missing"))
+                },
+                baseAttractiveness: 500f),
+            KLEPExecutableTickStatus.Succeeded);
+        var neuron = new KLEPNeuron("agent.learned.boundary.neuron");
+        neuron.RegisterExecutable(locked);
+        neuron.RegisterExecutable(tandem);
+        neuron.RegisterExecutable(solo);
+        var policy = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 0f);
+        var agent = new KLEPAgent(
+            neuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, policy);
+
+        agent.Tick();
+        Expect(policy.EvaluateCount == 1 &&
+               policy.LastRequest.CurrentSnapshot.Contains(sensed.Id) &&
+               policy.LastRequest.CurrentSnapshot.WaveIndex > 0 &&
+               policy.LastRequest.Candidates.Count == 1 &&
+               policy.LastRequest.Candidates[0].ExecutableStableId == soloId,
+            "The policy sees the settled post-Tandem snapshot but never receives Tandem or ineligible roots");
+
+        var noEligibleNeuron = new KLEPNeuron(
+            "agent.learned.no-eligible.neuron");
+        noEligibleNeuron.RegisterExecutable(new ProbeExecutable(
+            new KLEPExecutableDefinition(
+                "agent.learned.no-eligible.locked",
+                "locked",
+                KLEPExecutableKind.Action,
+                validationLocks: new[]
+                {
+                    new KLEPLock(
+                        "agent.learned.no-eligible.lock",
+                        "closed",
+                        new KLEPKeyPresent("agent.learned.no-eligible.missing"))
+                },
+                baseAttractiveness: 1f),
+            KLEPExecutableTickStatus.Succeeded));
+        noEligibleNeuron.RegisterExecutable(new ProbeExecutable(
+            Definition(
+                "agent.learned.no-eligible.tandem",
+                1f,
+                KLEPExecutionMode.Tandem),
+            KLEPExecutableTickStatus.Succeeded));
+        var untouchedPolicy = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 0f);
+        var noEligibleAgent = new KLEPAgent(
+            noEligibleNeuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, untouchedPolicy);
+        noEligibleAgent.Tick();
+        Expect(untouchedPolicy.EvaluateCount == 0,
+            "The optional policy is not invoked when no already-eligible root Solo exists");
+    }
+
+    private static void VerifyLearnedDesirePrecedesObserverPolish()
+    {
+        const string actionId = "agent.learned.order.action";
+        var action = new ProbeExecutable(
+            Definition(actionId, 2f), KLEPExecutableTickStatus.Running);
+        var neuron = new KLEPNeuron("agent.learned.order.neuron");
+        neuron.RegisterExecutable(action);
+        var guidance = new PolishingGuidanceObserver(actionId, 4f);
+        var policy = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 3f);
+        var agent = new KLEPAgent(
+            neuron,
+            null,
+            guidance,
+            KLEPBaselineStructuralObserver.Instance,
+            null,
+            null,
+            policy);
+
+        agent.Tick();
+        KLEPAgentTickTrace polished = agent.Tick();
+        CandidateEvaluation candidate = Candidate(polished, actionId);
+        IReadOnlyList<KLEPExecutableScoreComponent> components =
+            candidate.ScoreEvaluation.Components;
+        Expect(candidate.Score == 9f &&
+               components.Count == 3 &&
+               components[0].Kind ==
+                   KLEPExecutableScoreComponentKind.BaseAttractiveness &&
+               components[1].Kind ==
+                   KLEPExecutableScoreComponentKind.LearnedDesireExpectation &&
+               components[2].Kind ==
+                   KLEPExecutableScoreComponentKind.ObserverInfluence &&
+               polished.Decision.GuidanceAdvice.PreObserverScore == 5f,
+            "Learned Desire expectation is appended before the final one-use Observer polish");
+    }
+
+    private static void VerifyMalformedLearnedDesireBatchFaultsAtomically()
+    {
+        const string firstId = "agent.learned.malformed.a";
+        const string secondId = "agent.learned.malformed.b";
+        var neuron = new KLEPNeuron("agent.learned.malformed.neuron");
+        neuron.RegisterExecutable(new ProbeExecutable(
+            Definition(firstId, 2f), KLEPExecutableTickStatus.Succeeded));
+        neuron.RegisterExecutable(new ProbeExecutable(
+            Definition(secondId, 3f), KLEPExecutableTickStatus.Succeeded));
+        var malformed = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 1f,
+            omitLastResult: true);
+        var agent = new KLEPAgent(
+            neuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, malformed);
+
+        Exception fault = Catch(() => agent.Tick());
+        Expect(fault is InvalidOperationException &&
+               agent.LastTrace.Decision.Fault != null &&
+               agent.LastTrace.Decision.Fault.Stage ==
+                   KLEPExecutableLifecycleStage
+                       .LearnedDesireExpectationEvaluation,
+            "An incomplete learned Desire batch faults at its dedicated lifecycle boundary");
+        Expect(Candidate(agent.LastTrace, firstId).Score == 2f &&
+               Candidate(agent.LastTrace, secondId).Score == 3f &&
+               Candidate(agent.LastTrace, firstId)
+                   .ScoreEvaluation.Components.Count == 1 &&
+               Candidate(agent.LastTrace, secondId)
+                   .ScoreEvaluation.Components.Count == 1,
+            "Malformed batch validation is atomic and leaves every candidate at its pre-policy score");
+    }
+
+    private static void VerifyLearnedDesireOverflowFaultsAtomically()
+    {
+        const string safeId = "agent.learned.overflow.a-safe";
+        const string overflowId = "agent.learned.overflow.z-overflow";
+        var neuron = new KLEPNeuron("agent.learned.overflow.neuron");
+        neuron.RegisterExecutable(new ProbeExecutable(
+            Definition(safeId, 1f), KLEPExecutableTickStatus.Succeeded));
+        neuron.RegisterExecutable(new ProbeExecutable(
+            Definition(overflowId, float.MaxValue),
+            KLEPExecutableTickStatus.Succeeded));
+        var overflow = new RecordingLearnedDesirePolicy(
+            (request, candidate) =>
+                StringComparer.Ordinal.Equals(
+                    candidate.ExecutableStableId, overflowId)
+                    ? float.MaxValue
+                    : 1f);
+        var agent = new KLEPAgent(
+            neuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, overflow);
+
+        Exception fault = Catch(() => agent.Tick());
+        Expect(fault is InvalidOperationException &&
+               agent.LastTrace.Decision.Fault.Stage ==
+                   KLEPExecutableLifecycleStage
+                       .LearnedDesireExpectationEvaluation,
+            "A finite term whose aggregate score overflows faults at the learned Desire boundary");
+        Expect(Candidate(agent.LastTrace, safeId).Score == 1f &&
+               Candidate(agent.LastTrace, overflowId).Score == float.MaxValue &&
+               Candidate(agent.LastTrace, safeId)
+                   .ScoreEvaluation.Components.Count == 1,
+            "A later overflow cannot publish an earlier candidate's otherwise-valid learned score");
+    }
+
+    private static void VerifyLearnedDesireBindingMutationFaults()
+    {
+        const string actionId = "agent.learned.binding-mutation.action";
+        var neuron = new KLEPNeuron(
+            "agent.learned.binding-mutation.neuron");
+        neuron.RegisterExecutable(new ProbeExecutable(
+            Definition(actionId, 2f), KLEPExecutableTickStatus.Succeeded));
+        var mutating = new RecordingLearnedDesirePolicy(
+            (request, candidate) => 1f,
+            mutateBindingsDuringEvaluation: true);
+        var agent = new KLEPAgent(
+            neuron, null, null,
+            KLEPBaselineStructuralObserver.Instance,
+            null, null, mutating);
+
+        Exception fault = Catch(() => agent.Tick());
+        Expect(fault is InvalidOperationException &&
+               agent.LastTrace.Decision.Fault.Stage ==
+                   KLEPExecutableLifecycleStage
+                       .LearnedDesireExpectationEvaluation &&
+               Candidate(agent.LastTrace, actionId).Score == 2f,
+            "A policy cannot change its binding identity during a batch or publish partial influence");
     }
 
     private static void VerifyAgentStructuralMapLifecycleAndRejectedProposal()
@@ -2290,6 +2648,133 @@ internal static class Program
         if (!condition)
         {
             throw new InvalidOperationException($"Assertion failed: {message}");
+        }
+    }
+
+    private sealed class RecordingLearnedDesirePolicy :
+        IKLEPLearnedDesireSelectionPolicy
+    {
+        private readonly Func<
+            KLEPLearnedDesireSelectionRequest,
+            KLEPLearnedDesireSelectionCandidate,
+            float> contribution;
+        private readonly KLEPLearnedDesireContributionDisposition
+            zeroDisposition;
+        private readonly bool omitLastResult;
+        private readonly bool mutateBindingsDuringEvaluation;
+        private string bindingFingerprint =
+            "agent.test.learned-desire.bindings.v1";
+
+        internal RecordingLearnedDesirePolicy(
+            Func<
+                KLEPLearnedDesireSelectionRequest,
+                KLEPLearnedDesireSelectionCandidate,
+                float> contribution,
+            KLEPLearnedDesireContributionDisposition zeroDisposition =
+                KLEPLearnedDesireContributionDisposition.UnknownEvidence,
+            bool omitLastResult = false,
+            bool mutateBindingsDuringEvaluation = false)
+        {
+            this.contribution = contribution ??
+                throw new ArgumentNullException(nameof(contribution));
+            this.zeroDisposition = zeroDisposition;
+            this.omitLastResult = omitLastResult;
+            this.mutateBindingsDuringEvaluation =
+                mutateBindingsDuringEvaluation;
+        }
+
+        public string StableId => "agent.test.learned-desire.policy";
+        public string Version => "1";
+        public string BindingFingerprint => bindingFingerprint;
+        public int EvaluateCount { get; private set; }
+        public KLEPLearnedDesireSelectionRequest LastRequest { get; private set; }
+
+        public KLEPLearnedDesireSelectionBatch Evaluate(
+            KLEPLearnedDesireSelectionRequest request)
+        {
+            EvaluateCount++;
+            LastRequest = request ?? throw new ArgumentNullException(
+                nameof(request));
+            if (mutateBindingsDuringEvaluation)
+            {
+                bindingFingerprint += ".changed";
+            }
+            var frame = new KLEPLearnedDesireSelectionEvidenceFrame(
+                "agent.test.desires",
+                "agent.test.desires.definitions.v1",
+                $"agent.test.desires.snapshot.{request.CurrentSnapshot.Tick}",
+                request.CurrentSnapshot.Tick,
+                $"agent.test.moment.{request.CurrentSnapshot.Tick}",
+                "agent.test.context",
+                "agent.test.context.schema",
+                "1",
+                "agent.test.critic",
+                "1",
+                3,
+                2);
+            var evaluations = new List<
+                KLEPLearnedDesireCandidateEvaluation>();
+            int resultCount = omitLastResult
+                ? request.Candidates.Count - 1
+                : request.Candidates.Count;
+            for (int index = 0; index < resultCount; index++)
+            {
+                KLEPLearnedDesireSelectionCandidate candidate =
+                    request.Candidates[index];
+                float value = contribution(request, candidate);
+                string effectSource = candidate.ExecutableStableId;
+                KLEPLearnedDesireContributionDisposition disposition =
+                    value == 0f
+                        ? zeroDisposition
+                        : KLEPLearnedDesireContributionDisposition.Applied;
+                float confidence = disposition ==
+                    KLEPLearnedDesireContributionDisposition.UnknownEvidence
+                        ? 0f
+                        : 1f;
+                var term = new KLEPLearnedDesireContributionTrace(
+                    "agent.test.desire",
+                    "1",
+                    "agent.test.desire.evaluator",
+                    "1",
+                    effectSource,
+                    "agent.test.bucket." + candidate.ExecutableStableId,
+                    frame.CriticRevision,
+                    confidence == 0f ? 0 : 1,
+                    value,
+                    0f,
+                    0f,
+                    confidence,
+                    1f,
+                    1f,
+                    1f,
+                    value,
+                    disposition,
+                    "Deterministic Agent smoke evidence.");
+                evaluations.Add(new KLEPLearnedDesireCandidateEvaluation(
+                    StableId,
+                    Version,
+                    BindingFingerprint,
+                    frame,
+                    candidate.ExecutableStableId,
+                    candidate.RootTenureId,
+                    effectSource,
+                    KLEPLearnedDesireCandidateDisposition.Applied,
+                    candidate.PrePolicyScore,
+                    candidate.IsCurrentRunning,
+                    value,
+                    new[] { term },
+                    "Deterministic Agent smoke candidate."));
+            }
+
+            return new KLEPLearnedDesireSelectionBatch(
+                StableId,
+                Version,
+                BindingFingerprint,
+                request.CatalogRevision,
+                request.CatalogFingerprint,
+                request.CurrentEvidenceFingerprint,
+                frame,
+                evaluations);
         }
     }
 

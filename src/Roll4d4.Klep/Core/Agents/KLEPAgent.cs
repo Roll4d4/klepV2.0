@@ -16,6 +16,8 @@ namespace Roll4d4.Klep.Core
         private readonly IKLEPCandidateStateProjectionObserver
             candidateStateProjectionObserver;
         private readonly KLEPProjectedSatisfactionPolicy satisfactionPolicy;
+        private readonly IKLEPLearnedDesireSelectionPolicy
+            learnedDesireSelectionPolicy;
 
         private readonly Dictionary<KLEPKeyEnvironmentSignature, StateRecord> states =
             new Dictionary<KLEPKeyEnvironmentSignature, StateRecord>();
@@ -67,9 +69,12 @@ namespace Roll4d4.Klep.Core
             IKLEPExecutableStructuralObserver structuralObserver,
             KLEPProjectedSatisfactionPolicy satisfactionPolicy,
             IKLEPCandidateStateProjectionObserver
-                candidateStateProjectionObserver = null)
+                candidateStateProjectionObserver = null,
+            IKLEPLearnedDesireSelectionPolicy
+                learnedDesireSelectionPolicy = null)
         {
             Neuron = neuron ?? throw new ArgumentNullException(nameof(neuron));
+            IntentionState = new KLEPIntentionState(Neuron.StableId);
             Configuration = configuration ?? KLEPAgentConfiguration.Default;
             if (guidanceObserver != null)
             {
@@ -90,6 +95,7 @@ namespace Roll4d4.Klep.Core
                 guidanceObserver as IKLEPCandidateStateProjectionObserver ??
                 KLEPBaselineCandidateStateProjectionObserver.Instance;
             this.satisfactionPolicy = satisfactionPolicy;
+            this.learnedDesireSelectionPolicy = learnedDesireSelectionPolicy;
             ValidateStableId(
                 this.structuralObserver.StableId,
                 nameof(structuralObserver));
@@ -102,6 +108,18 @@ namespace Roll4d4.Klep.Core
             ValidateStableId(
                 this.candidateStateProjectionObserver.Version,
                 nameof(candidateStateProjectionObserver));
+            if (this.learnedDesireSelectionPolicy != null)
+            {
+                ValidateStableId(
+                    this.learnedDesireSelectionPolicy.StableId,
+                    nameof(learnedDesireSelectionPolicy));
+                ValidateStableId(
+                    this.learnedDesireSelectionPolicy.Version,
+                    nameof(learnedDesireSelectionPolicy));
+                ValidateStableId(
+                    this.learnedDesireSelectionPolicy.BindingFingerprint,
+                    nameof(learnedDesireSelectionPolicy));
+            }
             Neuron.ClaimDecisionOwner(this);
             decisionRuntime = new KLEPAgentDecisionRuntime(Neuron);
             lastObservedNeuronCycle = Neuron.CycleIndex;
@@ -117,6 +135,9 @@ namespace Roll4d4.Klep.Core
                 candidateStateProjectionObserver;
         public KLEPProjectedSatisfactionPolicy SatisfactionPolicy =>
             satisfactionPolicy;
+        public IKLEPLearnedDesireSelectionPolicy LearnedDesireSelectionPolicy =>
+            learnedDesireSelectionPolicy;
+        public KLEPIntentionState IntentionState { get; }
         public KLEPExecutableStructuralMap ExecutableMap =>
             decisionRuntime.AcceptedStructuralMap;
         public KLEPExecutableStructuralMap LastExecutableMapAttempt =>
@@ -168,7 +189,8 @@ namespace Roll4d4.Klep.Core
                         offeredAdvice,
                         structuralObserver,
                         satisfactionPolicy,
-                        candidateStateProjectionObserver);
+                        candidateStateProjectionObserver,
+                        learnedDesireSelectionPolicy);
                     agentTickOrdinal++;
                     lastObservedNeuronCycle = decision.CycleIndex;
                 }
@@ -183,8 +205,16 @@ namespace Roll4d4.Klep.Core
 
                     lastObservedNeuronCycle = Neuron.CycleIndex;
                     ObserveFaultedExecutions(decisionRuntime.LastTrace);
+                    KLEPIntentionSnapshot faultIntention = didAdvanceNeuronCycle
+                        ? IntentionState.Observe(
+                            agentTickOrdinal,
+                            decisionRuntime.LastTrace)
+                        : IntentionState.CaptureWithoutTransition(
+                            agentTickOrdinal,
+                            decisionRuntime.LastTrace.CycleIndex);
                     LastTrace = BuildFaultTrace(
-                        decisionRuntime.LastTrace);
+                        decisionRuntime.LastTrace,
+                        faultIntention);
                     if (!ReferenceEquals(
                             decisionRuntime.LastTrace.KeySnapshot,
                             KLEPKeySnapshot.Empty))
@@ -194,6 +224,10 @@ namespace Roll4d4.Klep.Core
 
                     throw;
                 }
+
+                KLEPIntentionSnapshot intention = IntentionState.Observe(
+                    agentTickOrdinal,
+                    decision);
 
                 KLEPKeyEnvironmentSignature observed =
                     KLEPKeyEnvironmentSignature.FromSnapshot(decision.KeySnapshot);
@@ -234,6 +268,7 @@ namespace Roll4d4.Klep.Core
 
                 KLEPAgentTickTrace completedTrace = new KLEPAgentTickTrace(
                     decision,
+                    intention,
                     state.Environment,
                     priorVisits,
                     state.VisitCount,
@@ -257,6 +292,7 @@ namespace Roll4d4.Klep.Core
                 RememberGuidanceConsultation(guidanceRequest);
                 LastTrace = new KLEPAgentTickTrace(
                     decision,
+                    intention,
                     state.Environment,
                     priorVisits,
                     state.VisitCount,
@@ -275,6 +311,7 @@ namespace Roll4d4.Klep.Core
                 pendingGuidanceAdvice = prepared;
                 LastTrace = new KLEPAgentTickTrace(
                     decision,
+                    intention,
                     state.Environment,
                     priorVisits,
                     state.VisitCount,
@@ -843,7 +880,9 @@ namespace Roll4d4.Klep.Core
                 reward));
         }
 
-        private KLEPAgentTickTrace BuildFaultTrace(KLEPDecisionTrace decision)
+        private KLEPAgentTickTrace BuildFaultTrace(
+            KLEPDecisionTrace decision,
+            KLEPIntentionSnapshot intention)
         {
             if (ReferenceEquals(
                     decision.KeySnapshot,
@@ -855,6 +894,7 @@ namespace Roll4d4.Klep.Core
                     CalculateFamiliarity(retainedVisits);
                 return new KLEPAgentTickTrace(
                     decision,
+                    intention,
                     lastBoundaryEnvironment,
                     retainedVisits,
                     retainedVisits,
@@ -883,6 +923,7 @@ namespace Roll4d4.Klep.Core
             float confidence = CalculateConfidence(familiarity, bestQ);
             return new KLEPAgentTickTrace(
                 decision,
+                intention,
                 known ? state.Environment : environment,
                 visits,
                 visits,

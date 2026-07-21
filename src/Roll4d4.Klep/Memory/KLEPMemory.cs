@@ -273,7 +273,8 @@ namespace Roll4d4.Klep.Memory
                 Snapshot.Clusters,
                 ids,
                 snapshotHistory,
-                Snapshot.Transitions);
+                Snapshot.Transitions,
+                KLEPMemoryState.CurrentSchemaVersion);
         }
 
         /// <summary>

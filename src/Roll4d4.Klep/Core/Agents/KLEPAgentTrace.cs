@@ -609,6 +609,7 @@ namespace Roll4d4.Klep.Core
 
         internal static readonly KLEPAgentTickTrace Empty = new KLEPAgentTickTrace(
             KLEPDecisionTrace.Empty,
+            KLEPIntentionSnapshot.Empty,
             KLEPKeyEnvironmentSignature.Empty,
             0,
             0,
@@ -624,6 +625,7 @@ namespace Roll4d4.Klep.Core
 
         internal KLEPAgentTickTrace(
             KLEPDecisionTrace decision,
+            KLEPIntentionSnapshot intentionSnapshot,
             KLEPKeyEnvironmentSignature environment,
             long priorVisitCount,
             long visitCountAfterTick,
@@ -638,6 +640,8 @@ namespace Roll4d4.Klep.Core
             KLEPGuidanceRequest guidanceRequest)
         {
             Decision = decision ?? throw new ArgumentNullException(nameof(decision));
+            IntentionSnapshot = intentionSnapshot ??
+                throw new ArgumentNullException(nameof(intentionSnapshot));
             Environment = environment ?? throw new ArgumentNullException(nameof(environment));
             EvidenceFingerprint =
                 KLEPGuidanceEvidenceFingerprint.FromSnapshot(Decision.KeySnapshot);
@@ -681,6 +685,7 @@ namespace Roll4d4.Klep.Core
         }
 
         public KLEPDecisionTrace Decision { get; }
+        public KLEPIntentionSnapshot IntentionSnapshot { get; }
         public KLEPKeyEnvironmentSignature Environment { get; }
         public KLEPGuidanceEvidenceFingerprint EvidenceFingerprint { get; }
         // VisitCount is the prior-observation N used by the confidence formula.

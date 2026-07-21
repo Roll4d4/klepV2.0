@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
 using Roll4d4.Klep.Core;
+using Roll4d4.Klep.Desire;
 using Roll4d4.Klep.Emotion;
 using Roll4d4.Klep.Ethics;
 
@@ -841,6 +842,536 @@ namespace Roll4d4.Klep.Memory
         }
     }
 
+    /// <summary>
+    /// Copied identity for one Desire observation boundary. Desire Tick is
+    /// retained as its own subsystem clock; the observed Memory moment ID is
+    /// the causal binding to an experience boundary.
+    /// </summary>
+    public sealed class KLEPMemoryDesireObservationRecord
+    {
+        public KLEPMemoryDesireObservationRecord(
+            string snapshotId,
+            long desireTick,
+            string observedMomentId,
+            string contextId,
+            string contextSchemaId,
+            string contextSchemaVersion)
+        {
+            SnapshotId = KLEPMemoryValidation.RequireId(
+                snapshotId,
+                nameof(snapshotId));
+            if (desireTick < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(desireTick));
+            }
+
+            ObservedMomentId = KLEPMemoryValidation.RequireId(
+                observedMomentId,
+                nameof(observedMomentId));
+            ContextId = KLEPMemoryValidation.RequireId(
+                contextId,
+                nameof(contextId));
+            ContextSchemaId = KLEPMemoryValidation.RequireId(
+                contextSchemaId,
+                nameof(contextSchemaId));
+            ContextSchemaVersion = KLEPMemoryValidation.RequireId(
+                contextSchemaVersion,
+                nameof(contextSchemaVersion));
+            DesireTick = desireTick;
+        }
+
+        public string SnapshotId { get; }
+        public long DesireTick { get; }
+        public string ObservedMomentId { get; }
+        public string ContextId { get; }
+        public string ContextSchemaId { get; }
+        public string ContextSchemaVersion { get; }
+
+        internal static KLEPMemoryDesireObservationRecord Capture(
+            string snapshotId,
+            long desireTick,
+            string observedMomentId,
+            KLEPDesireContextIdentity context)
+        {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            return new KLEPMemoryDesireObservationRecord(
+                snapshotId,
+                desireTick,
+                observedMomentId,
+                context.ContextId,
+                context.SchemaId,
+                context.SchemaVersion);
+        }
+    }
+
+    /// <summary>
+    /// Copied caller-owned attribution. This record preserves the causal claim
+    /// but does not infer or strengthen it. Automatic-learning qualification is
+    /// derived only from ActionOwned attribution.
+    /// </summary>
+    public sealed class KLEPMemoryDesireAttributionRecord
+    {
+        private readonly ReadOnlyCollection<string> evidenceIds;
+
+        public KLEPMemoryDesireAttributionRecord(
+            KLEPDesireEffectAttribution kind,
+            string provenanceId,
+            string actionStableId = null,
+            long? actionRunIndex = null,
+            IReadOnlyList<string> evidenceIds = null)
+        {
+            if (!Enum.IsDefined(typeof(KLEPDesireEffectAttribution), kind))
+            {
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            }
+
+            ProvenanceId = KLEPMemoryValidation.RequireId(
+                provenanceId,
+                nameof(provenanceId));
+            bool hasActionId = !string.IsNullOrWhiteSpace(actionStableId);
+            bool hasRunIndex = actionRunIndex.HasValue;
+            if (kind == KLEPDesireEffectAttribution.ActionOwned)
+            {
+                if (!hasActionId)
+                {
+                    throw new ArgumentException(
+                        "ActionOwned Desire attribution requires an exact action stable ID.",
+                        nameof(actionStableId));
+                }
+
+                if (!hasRunIndex || actionRunIndex.Value <= 0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(actionRunIndex),
+                        "ActionOwned Desire attribution requires a positive exact run index.");
+                }
+            }
+            else if (hasActionId || hasRunIndex)
+            {
+                throw new ArgumentException(
+                    "Only ActionOwned Desire attribution may claim an exact action run.",
+                    nameof(actionStableId));
+            }
+
+            Kind = kind;
+            ActionStableId = hasActionId ? actionStableId : string.Empty;
+            ActionRunIndex = actionRunIndex;
+            this.evidenceIds = KLEPMemoryValidation.CopyIds(
+                evidenceIds,
+                nameof(evidenceIds));
+        }
+
+        public KLEPDesireEffectAttribution Kind { get; }
+        public string ProvenanceId { get; }
+        public string ActionStableId { get; }
+        public long? ActionRunIndex { get; }
+        public IReadOnlyList<string> EvidenceIds => evidenceIds;
+        public bool IsEligibleForAutomaticExpectationLearning =>
+            Kind == KLEPDesireEffectAttribution.ActionOwned;
+
+        internal static KLEPMemoryDesireAttributionRecord Capture(
+            KLEPDesireAttributionEvidence source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            return new KLEPMemoryDesireAttributionRecord(
+                source.Kind,
+                source.ProvenanceId,
+                source.ActionStableId,
+                source.ActionRunIndex,
+                source.EvidenceIds);
+        }
+
+        internal bool HasSameEvidenceAs(
+            KLEPMemoryDesireAttributionRecord other)
+        {
+            if (other == null ||
+                Kind != other.Kind ||
+                !StringComparer.Ordinal.Equals(
+                    ProvenanceId,
+                    other.ProvenanceId) ||
+                !StringComparer.Ordinal.Equals(
+                    ActionStableId,
+                    other.ActionStableId) ||
+                ActionRunIndex != other.ActionRunIndex ||
+                evidenceIds.Count != other.evidenceIds.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < evidenceIds.Count; i++)
+            {
+                if (!StringComparer.Ordinal.Equals(
+                        evidenceIds[i],
+                        other.evidenceIds[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Copied raw change for one Desire. Effect is satisfaction-after minus
+    /// satisfaction-before and is never pressure- or weight-multiplied here.
+    /// </summary>
+    public sealed class KLEPMemoryDesireEffectRecord
+    {
+        private readonly ReadOnlyCollection<string> evidenceIdsBefore;
+        private readonly ReadOnlyCollection<string> evidenceIdsAfter;
+
+        public KLEPMemoryDesireEffectRecord(
+            string desireStableId,
+            string desireVersion,
+            string evaluatorId,
+            string evaluatorVersion,
+            float weight,
+            float satisfactionBefore,
+            float satisfactionAfter,
+            float deficitBefore,
+            float deficitAfter,
+            float pressureBefore,
+            float pressureAfter,
+            float effect,
+            string explanationBefore,
+            string explanationAfter,
+            IReadOnlyList<string> evidenceIdsBefore,
+            IReadOnlyList<string> evidenceIdsAfter,
+            KLEPMemoryDesireAttributionRecord attribution)
+        {
+            DesireStableId = KLEPMemoryValidation.RequireId(
+                desireStableId,
+                nameof(desireStableId));
+            DesireVersion = KLEPMemoryValidation.RequireId(
+                desireVersion,
+                nameof(desireVersion));
+            EvaluatorId = KLEPMemoryValidation.RequireId(
+                evaluatorId,
+                nameof(evaluatorId));
+            EvaluatorVersion = KLEPMemoryValidation.RequireId(
+                evaluatorVersion,
+                nameof(evaluatorVersion));
+            Weight = RequireNonnegativeFinite(weight, nameof(weight));
+            SatisfactionBefore = RequireUnit(
+                satisfactionBefore,
+                nameof(satisfactionBefore));
+            SatisfactionAfter = RequireUnit(
+                satisfactionAfter,
+                nameof(satisfactionAfter));
+            DeficitBefore = RequireUnit(deficitBefore, nameof(deficitBefore));
+            DeficitAfter = RequireUnit(deficitAfter, nameof(deficitAfter));
+            PressureBefore = RequireNonnegativeFinite(
+                pressureBefore,
+                nameof(pressureBefore));
+            PressureAfter = RequireNonnegativeFinite(
+                pressureAfter,
+                nameof(pressureAfter));
+            Effect = RequireFinite(effect, nameof(effect));
+            ExplanationBefore = RequireText(
+                explanationBefore,
+                nameof(explanationBefore));
+            ExplanationAfter = RequireText(
+                explanationAfter,
+                nameof(explanationAfter));
+            this.evidenceIdsBefore = KLEPMemoryValidation.CopyIds(
+                evidenceIdsBefore,
+                nameof(evidenceIdsBefore));
+            this.evidenceIdsAfter = KLEPMemoryValidation.CopyIds(
+                evidenceIdsAfter,
+                nameof(evidenceIdsAfter));
+            Attribution = attribution ??
+                throw new ArgumentNullException(nameof(attribution));
+
+            if (!DeficitBefore.Equals(1f - SatisfactionBefore) ||
+                !DeficitAfter.Equals(1f - SatisfactionAfter))
+            {
+                throw new ArgumentException(
+                    "Remembered Desire deficits must equal one minus satisfaction.");
+            }
+
+            if (!Effect.Equals(SatisfactionAfter - SatisfactionBefore))
+            {
+                throw new ArgumentException(
+                    "Remembered Desire effect must equal satisfaction-after minus satisfaction-before.",
+                    nameof(effect));
+            }
+        }
+
+        public string DesireStableId { get; }
+        public string DesireVersion { get; }
+        public string EvaluatorId { get; }
+        public string EvaluatorVersion { get; }
+        public float Weight { get; }
+        public float SatisfactionBefore { get; }
+        public float SatisfactionAfter { get; }
+        public float DeficitBefore { get; }
+        public float DeficitAfter { get; }
+        public float PressureBefore { get; }
+        public float PressureAfter { get; }
+        public float Effect { get; }
+        public string ExplanationBefore { get; }
+        public string ExplanationAfter { get; }
+        public IReadOnlyList<string> EvidenceIdsBefore => evidenceIdsBefore;
+        public IReadOnlyList<string> EvidenceIdsAfter => evidenceIdsAfter;
+        public KLEPMemoryDesireAttributionRecord Attribution { get; }
+        public KLEPDesireEffectAttribution AttributionKind => Attribution.Kind;
+        public bool IsEligibleForAutomaticExpectationLearning =>
+            Attribution.IsEligibleForAutomaticExpectationLearning;
+
+        internal static KLEPMemoryDesireEffectRecord Capture(
+            KLEPDesireEffectTrace source,
+            KLEPMemoryDesireAttributionRecord attribution)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            return new KLEPMemoryDesireEffectRecord(
+                source.DesireStableId,
+                source.DesireVersion,
+                source.EvaluatorId,
+                source.EvaluatorVersion,
+                source.Weight,
+                source.SatisfactionBefore,
+                source.SatisfactionAfter,
+                source.DeficitBefore,
+                source.DeficitAfter,
+                source.PressureBefore,
+                source.PressureAfter,
+                source.Effect,
+                source.ExplanationBefore,
+                source.ExplanationAfter,
+                source.EvidenceIdsBefore,
+                source.EvidenceIdsAfter,
+                attribution);
+        }
+
+        private static float RequireUnit(float value, string parameterName)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) ||
+                value < 0f || value > 1f)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+
+            return value == 0f ? 0f : value;
+        }
+
+        private static float RequireNonnegativeFinite(
+            float value,
+            string parameterName)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value < 0f)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+
+            return value == 0f ? 0f : value;
+        }
+
+        private static float RequireFinite(float value, string parameterName)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+
+            return value == 0f ? 0f : value;
+        }
+
+        private static string RequireText(string value, string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException(
+                    "Remembered Desire evidence requires an inspectable explanation.",
+                    parameterName);
+            }
+
+            return value;
+        }
+    }
+
+    /// <summary>
+    /// Data-first archival copy of one already-evaluated Desire effect vector.
+    /// It retains evidence and provenance but exposes no reward or aggregate.
+    /// </summary>
+    public sealed class KLEPMemoryDesireEffectVector
+    {
+        private readonly ReadOnlyCollection<KLEPMemoryDesireEffectRecord> effects;
+
+        public KLEPMemoryDesireEffectVector(
+            string transitionId,
+            string ownerId,
+            string definitionFingerprint,
+            KLEPMemoryDesireObservationRecord prior,
+            KLEPMemoryDesireObservationRecord consequence,
+            KLEPMemoryDesireAttributionRecord attribution,
+            IReadOnlyList<KLEPMemoryDesireEffectRecord> effects)
+        {
+            TransitionId = KLEPMemoryValidation.RequireId(
+                transitionId,
+                nameof(transitionId));
+            OwnerId = KLEPMemoryValidation.RequireId(ownerId, nameof(ownerId));
+            DefinitionFingerprint = KLEPMemoryValidation.RequireId(
+                definitionFingerprint,
+                nameof(definitionFingerprint));
+            Prior = prior ?? throw new ArgumentNullException(nameof(prior));
+            Consequence = consequence ??
+                throw new ArgumentNullException(nameof(consequence));
+            Attribution = attribution ??
+                throw new ArgumentNullException(nameof(attribution));
+            if (Prior.DesireTick >= Consequence.DesireTick ||
+                StringComparer.Ordinal.Equals(
+                    Prior.ObservedMomentId,
+                    Consequence.ObservedMomentId))
+            {
+                throw new ArgumentException(
+                    "A remembered Desire transition requires strictly ordered Desire Ticks and distinct observed moment identities.");
+            }
+
+            if (!StringComparer.Ordinal.Equals(
+                    Prior.ContextSchemaId,
+                    Consequence.ContextSchemaId) ||
+                !StringComparer.Ordinal.Equals(
+                    Prior.ContextSchemaVersion,
+                    Consequence.ContextSchemaVersion))
+            {
+                throw new ArgumentException(
+                    "A remembered Desire transition requires compatible context schemas.");
+            }
+
+            var copy = new List<KLEPMemoryDesireEffectRecord>();
+            var desireIds = new HashSet<string>(StringComparer.Ordinal);
+            if (effects != null)
+            {
+                for (int i = 0; i < effects.Count; i++)
+                {
+                    KLEPMemoryDesireEffectRecord effect = effects[i] ??
+                        throw new ArgumentException(
+                            "Desire effect vectors cannot contain null records.",
+                            nameof(effects));
+                    if (!desireIds.Add(effect.DesireStableId))
+                    {
+                        throw new ArgumentException(
+                            $"Desire effect '{effect.DesireStableId}' occurs more than once.",
+                            nameof(effects));
+                    }
+
+                    if (!Attribution.HasSameEvidenceAs(effect.Attribution))
+                    {
+                        throw new ArgumentException(
+                            "Every Desire effect must retain the vector's exact attribution evidence.",
+                            nameof(effects));
+                    }
+
+                    copy.Add(effect);
+                }
+            }
+
+            this.effects =
+                new ReadOnlyCollection<KLEPMemoryDesireEffectRecord>(copy);
+            string reconstructedFingerprint = BuildDefinitionFingerprint(
+                this.effects);
+            if (!StringComparer.Ordinal.Equals(
+                    DefinitionFingerprint,
+                    reconstructedFingerprint))
+            {
+                throw new ArgumentException(
+                    "The remembered Desire definition fingerprint does not match the complete ordered effect records.",
+                    nameof(definitionFingerprint));
+            }
+        }
+
+        public string TransitionId { get; }
+        public string OwnerId { get; }
+        public string DefinitionFingerprint { get; }
+        public KLEPMemoryDesireObservationRecord Prior { get; }
+        public KLEPMemoryDesireObservationRecord Consequence { get; }
+        public KLEPMemoryDesireAttributionRecord Attribution { get; }
+        public IReadOnlyList<KLEPMemoryDesireEffectRecord> Effects => effects;
+
+        public static KLEPMemoryDesireEffectVector Capture(
+            KLEPDesireEffectVector source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            KLEPMemoryDesireAttributionRecord attribution =
+                KLEPMemoryDesireAttributionRecord.Capture(source.Attribution);
+            var copiedEffects = new List<KLEPMemoryDesireEffectRecord>(
+                source.Effects.Count);
+            for (int i = 0; i < source.Effects.Count; i++)
+            {
+                copiedEffects.Add(KLEPMemoryDesireEffectRecord.Capture(
+                    source.Effects[i],
+                    attribution));
+            }
+
+            return new KLEPMemoryDesireEffectVector(
+                source.TransitionId,
+                source.OwnerId,
+                source.DefinitionFingerprint,
+                KLEPMemoryDesireObservationRecord.Capture(
+                    source.PriorSnapshotId,
+                    source.PriorDesireTick,
+                    source.PriorMomentId,
+                    source.PriorContextIdentity),
+                KLEPMemoryDesireObservationRecord.Capture(
+                    source.ConsequenceSnapshotId,
+                    source.ConsequenceDesireTick,
+                    source.ConsequenceMomentId,
+                    source.ConsequenceContextIdentity),
+                attribution,
+                copiedEffects);
+        }
+
+        private static string BuildDefinitionFingerprint(
+            IReadOnlyList<KLEPMemoryDesireEffectRecord> source)
+        {
+            var builder = new StringBuilder("klep.desire.definitions.v1");
+            builder.Append('|').Append(source.Count.ToString(
+                CultureInfo.InvariantCulture));
+            for (int i = 0; i < source.Count; i++)
+            {
+                KLEPMemoryDesireEffectRecord effect = source[i];
+                builder.Append('|').Append(i.ToString(
+                    CultureInfo.InvariantCulture));
+                AppendDefinitionToken(builder, effect.DesireStableId);
+                AppendDefinitionToken(builder, effect.DesireVersion);
+                AppendDefinitionToken(builder, effect.EvaluatorId);
+                AppendDefinitionToken(builder, effect.EvaluatorVersion);
+                AppendDefinitionToken(
+                    builder,
+                    effect.Weight.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            return builder.ToString();
+        }
+
+        private static void AppendDefinitionToken(
+            StringBuilder builder,
+            string value)
+        {
+            builder.Append('|')
+                .Append(value.Length.ToString(CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(value);
+        }
+    }
+
     public sealed class KLEPMemoryEthicsTraceRecord
     {
         private readonly ReadOnlyCollection<string> evidenceIds;
@@ -1190,7 +1721,8 @@ namespace Roll4d4.Klep.Memory
             IReadOnlyList<KLEPMemoryMoment> moments,
             KLEPMemoryActionOutcome actionOutcome = null,
             IReadOnlyList<KLEPMemoryEthicsRecord> ethics = null,
-            KLEPMemoryEmotionalConsequence emotion = null)
+            KLEPMemoryEmotionalConsequence emotion = null,
+            KLEPMemoryDesireEffectVector desireEffects = null)
         {
             ExperienceId = KLEPMemoryValidation.RequireId(
                 experienceId,
@@ -1335,6 +1867,39 @@ namespace Roll4d4.Klep.Memory
             }
 
             Emotion = emotion;
+            DesireEffects = desireEffects;
+            if (DesireEffects != null)
+            {
+                KLEPMemoryMoment priorMoment = this.moments[0];
+                KLEPMemoryMoment consequenceMoment =
+                    this.moments[this.moments.Count - 1];
+                if (!StringComparer.Ordinal.Equals(
+                        DesireEffects.Prior.ObservedMomentId,
+                        priorMoment.MomentId) ||
+                    !StringComparer.Ordinal.Equals(
+                        DesireEffects.Consequence.ObservedMomentId,
+                        consequenceMoment.MomentId))
+                {
+                    throw new ArgumentException(
+                        "Desire evidence must bind to the exact prior and consequence moment identities.",
+                        nameof(desireEffects));
+                }
+
+                if (DesireEffects.Attribution.Kind ==
+                    KLEPDesireEffectAttribution.ActionOwned &&
+                    (ActionOutcome == null ||
+                     !StringComparer.Ordinal.Equals(
+                         DesireEffects.Attribution.ActionStableId,
+                         ActionOutcome.ExecutableStableId) ||
+                     DesireEffects.Attribution.ActionRunIndex !=
+                         ActionOutcome.RunIndex))
+                {
+                    throw new ArgumentException(
+                        "ActionOwned Desire evidence must match the factual Executable stable ID and run index.",
+                        nameof(desireEffects));
+                }
+            }
+
             keyCells = KLEPMemoryValidation.UnionCells(this.moments);
             priorKeyCells = KLEPMemoryValidation.CopyUniqueCells(
                 this.moments[0].KeyCells,
@@ -1360,6 +1925,7 @@ namespace Roll4d4.Klep.Memory
         public KLEPMemoryActionOutcome ActionOutcome { get; }
         public IReadOnlyList<KLEPMemoryEthicsRecord> Ethics => ethics;
         public KLEPMemoryEmotionalConsequence Emotion { get; }
+        public KLEPMemoryDesireEffectVector DesireEffects { get; }
         public IReadOnlyList<KLEPMemoryKeyCell> KeyCells => keyCells;
         public IReadOnlyList<KLEPMemoryKeyCell> PriorKeyCells => priorKeyCells;
         public IReadOnlyList<KLEPMemoryKeyCell> DuringKeyCells => duringKeyCells;
@@ -1410,7 +1976,8 @@ namespace Roll4d4.Klep.Memory
                 gistMoments,
                 ActionOutcome,
                 ethics,
-                Emotion);
+                Emotion,
+                DesireEffects);
         }
     }
 
@@ -1739,12 +2306,22 @@ namespace Roll4d4.Klep.Memory
                 double speedLowerBound = Math.Sqrt(
                     (producedVelocitySumX * producedVelocitySumX) +
                     (producedVelocitySumY * producedVelocitySumY));
-                double positionTolerance = 1e-9d * Math.Max(
-                    1d,
-                    positionLowerBound);
-                double speedTolerance = 1e-9d * Math.Max(
-                    1d,
-                    speedLowerBound);
+                // The source vectors and their Magnitude are Single values.
+                // Their double aggregates can therefore differ from a norm
+                // recomputed in double by one representable Single step even
+                // when both came from the same factual vector. Accept only
+                // that representation-scale discrepancy; material violations
+                // of Cauchy/triangle bounds remain invalid.
+                double positionTolerance =
+                    KLEPMemoryValidation.SinglePrecisionTolerance * Math.Max(
+                        1d,
+                        Math.Max(
+                            positionLowerBound,
+                            producedPositionSquaredMagnitudeSum));
+                double speedTolerance =
+                    KLEPMemoryValidation.SinglePrecisionTolerance * Math.Max(
+                        1d,
+                        Math.Max(speedLowerBound, producedSpeedSum));
                 if (producedPositionSquaredMagnitudeSum + positionTolerance <
                         positionLowerBound ||
                     producedSpeedSum + speedTolerance < speedLowerBound ||
@@ -2003,7 +2580,7 @@ namespace Roll4d4.Klep.Memory
     /// </summary>
     public sealed class KLEPMemoryState
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         private readonly ReadOnlyCollection<KLEPMemoryClusterSnapshot> clusters;
         private readonly ReadOnlyCollection<string> seenExperienceIds;
@@ -2018,8 +2595,8 @@ namespace Roll4d4.Klep.Memory
             IReadOnlyList<KLEPMemoryClusterSnapshot> clusters,
             IReadOnlyList<string> seenExperienceIds,
             IReadOnlyList<KLEPMemorySnapshot> snapshotHistory,
-            IReadOnlyList<KLEPMemoryTransition> lastTransitions = null,
-            int schemaVersion = CurrentSchemaVersion)
+            IReadOnlyList<KLEPMemoryTransition> lastTransitions,
+            int schemaVersion)
         {
             if (schemaVersion != CurrentSchemaVersion)
             {
@@ -2108,6 +2685,10 @@ namespace Roll4d4.Klep.Memory
 
     internal static class KLEPMemoryValidation
     {
+        // 2^-23: the relative spacing of normalized IEEE-754 Single values.
+        // Used only when validating aggregates derived from public float data.
+        internal const double SinglePrecisionTolerance =
+            1.1920928955078125e-7d;
         internal const float MaximumEmotionDistance = 2.8284272f;
 
         internal static bool TrySumOutcomeCounts(

@@ -25,6 +25,10 @@ internal static class Program
         VerifyCurrentSoloTieAndStrictInterruption();
         VerifyPatientStateWithTandemWork();
         VerifyActiveRemovalCleansUpOnce();
+        VerifyAcceptedRemovalBatchContinuesAfterFault();
+        VerifyAcceptedRemovalBatchAggregatesFaults();
+        VerifyRemovalFaultRejectsSameBoundaryReplacement();
+        VerifyRemovalRecoveryFaultRequiresFreshMap();
         VerifyTickFaultIsTracedCleanedAndRethrown();
         VerifyTandemCascadeSettlesBeforeSolo();
         VerifyProcessedRunningTandemWaitsUntilNextTickForLockCancellation();
@@ -504,6 +508,222 @@ internal static class Program
         neuron.TickViaAgent();
         Expect(probe.ExitCount == 1 && probe.CleanupCount == 1,
             "Repeated removal cannot duplicate Exit or Cleanup");
+    }
+
+    private static void VerifyAcceptedRemovalBatchContinuesAfterFault()
+    {
+        var sentinel = new InvalidOperationException(
+            "first accepted removal teardown fault");
+        ProbeExecutable first = MakeProbe(
+            "tandem.remove-batch.a-fault",
+            0f,
+            KLEPExecutionMode.Tandem);
+        first.DefaultStatus = KLEPExecutableTickStatus.Running;
+        first.ExitAction = context => throw sentinel;
+        ProbeExecutable later = MakeProbe(
+            "tandem.remove-batch.b-later",
+            0f,
+            KLEPExecutionMode.Tandem);
+        later.DefaultStatus = KLEPExecutableTickStatus.Running;
+        var neuron = new KLEPNeuron("neuron.remove-batch.continue");
+        neuron.RegisterExecutable(later);
+        neuron.RegisterExecutable(first);
+        KLEPAgent agent = neuron.AgentViaTest();
+        agent.Tick();
+
+        // Stage in reverse order to prove application follows stable IDs rather
+        // than HashSet or caller order.
+        neuron.RemoveExecutable(later.StableId);
+        neuron.RemoveExecutable(first.StableId);
+        Exception observed = Catch(() => agent.Tick());
+
+        Expect(ReferenceEquals(observed, sentinel),
+            "One accepted removal fault is rethrown unchanged after the batch settles");
+        Expect(first.ExitCount == 1 && first.CleanupCount == 1 &&
+               later.ExitCount == 1 && later.CleanupCount == 1,
+            "A teardown fault cannot prevent a later accepted root from cancelling exactly once");
+        IReadOnlyList<KLEPExecutableStepTrace> steps =
+            agent.LastTrace.Decision.Executions;
+        Expect(steps.Count == 2 &&
+               steps[0].ExecutableStableId == first.StableId &&
+               steps[0].State == KLEPExecutableState.Faulted &&
+               steps[1].ExecutableStableId == later.StableId &&
+               steps[1].State == KLEPExecutableState.Cancelled,
+            "Accepted removals and their fault evidence remain in ordinal root order");
+        Expect(agent.LastTrace.Decision.Fault != null &&
+               agent.LastTrace.Decision.Fault.ExecutableStableId == first.StableId &&
+               agent.LastTrace.Decision.Fault.Stage ==
+                   KLEPExecutableLifecycleStage.Exit,
+            "The primary Tick fault retains the first exact removal callback identity");
+        Expect(neuron.GetRootExecutableDefinitionsSnapshot().Count == 0 &&
+               agent.GetRootExecutableRuntimeSnapshot().Count == 0 &&
+               agent.ExecutableMap.Snapshot.Roots.Count == 0,
+            "Every accepted removal retires from catalog, runtime, and accepted map despite teardown fault");
+
+        KLEPAgentTickTrace following = agent.Tick();
+        Expect(following.Decision.StructuralMap.Disposition ==
+                   KLEPStructuralMapDisposition.Reused &&
+               first.ExitCount == 1 && later.ExitCount == 1 &&
+               following.Decision.IsPatient,
+            "A settled removal fault is not retried and the accurate accepted map is reusable");
+    }
+
+    private static void VerifyAcceptedRemovalBatchAggregatesFaults()
+    {
+        var firstSentinel = new InvalidOperationException(
+            "accepted removal fault a");
+        var laterSentinel = new InvalidOperationException(
+            "accepted removal fault b");
+        ProbeExecutable first = MakeProbe(
+            "tandem.remove-many.a",
+            0f,
+            KLEPExecutionMode.Tandem);
+        first.DefaultStatus = KLEPExecutableTickStatus.Running;
+        first.ExitAction = context => throw firstSentinel;
+        ProbeExecutable later = MakeProbe(
+            "tandem.remove-many.b",
+            0f,
+            KLEPExecutionMode.Tandem);
+        later.DefaultStatus = KLEPExecutableTickStatus.Running;
+        later.ExitAction = context => throw laterSentinel;
+        var neuron = new KLEPNeuron("neuron.remove-batch.aggregate");
+        neuron.RegisterExecutable(later);
+        neuron.RegisterExecutable(first);
+        KLEPAgent agent = neuron.AgentViaTest();
+        agent.Tick();
+
+        neuron.RemoveExecutable(later.StableId);
+        neuron.RemoveExecutable(first.StableId);
+        Exception observed = Catch(() => agent.Tick());
+        var aggregate = observed as AggregateException;
+
+        Expect(aggregate != null && aggregate.InnerExceptions.Count == 2 &&
+               ReferenceEquals(aggregate.InnerExceptions[0], firstSentinel) &&
+               ReferenceEquals(aggregate.InnerExceptions[1], laterSentinel),
+            "Several accepted removal faults aggregate in ordinal root order");
+        Expect(first.ExitCount == 1 && first.CleanupCount == 1 &&
+               later.ExitCount == 1 && later.CleanupCount == 1 &&
+               agent.GetRootExecutableRuntimeSnapshot().Count == 0 &&
+               neuron.GetRootExecutableDefinitionsSnapshot().Count == 0,
+            "Every multiply-faulted accepted removal still retires exactly once");
+        Expect(agent.LastTrace.Decision.Fault.ExecutableStableId == first.StableId &&
+               agent.LastTrace.Decision.Fault.Stage ==
+                   KLEPExecutableLifecycleStage.Exit,
+            "An aggregate removal fault attributes the Tick to its first exact failure");
+    }
+
+    private static void VerifyRemovalFaultRejectsSameBoundaryReplacement()
+    {
+        var sentinel = new InvalidOperationException(
+            "replacement removal teardown fault");
+        ProbeExecutable original = MakeProbe(
+            "tandem.remove-replace.same-id",
+            0f,
+            KLEPExecutionMode.Tandem);
+        original.DefaultStatus = KLEPExecutableTickStatus.Running;
+        original.ExitAction = context => throw sentinel;
+        var neuron = new KLEPNeuron("neuron.remove-replace.recover");
+        neuron.RegisterExecutable(original);
+        KLEPAgent agent = neuron.AgentViaTest();
+        agent.Tick();
+
+        ProbeExecutable replacement = MakeProbe(
+            original.StableId,
+            0f,
+            KLEPExecutionMode.Tandem);
+        neuron.RemoveExecutable(original.StableId);
+        neuron.RegisterExecutable(replacement);
+        Exception observed = Catch(() => agent.Tick());
+
+        Expect(ReferenceEquals(observed, sentinel) &&
+               original.ExitCount == 1 && original.CleanupCount == 1,
+            "A mixed remove-replace boundary preserves the original removal fault");
+        Expect(replacement.InitializeCount == 0 && !replacement.IsNeuronOwned,
+            "A removal fault rejects an uninitialized same-boundary replacement");
+        Expect(neuron.GetRootExecutableDefinitionsSnapshot().Count == 0 &&
+               agent.GetRootExecutableRuntimeSnapshot().Count == 0 &&
+               agent.ExecutableMap.Snapshot.Roots.Count == 0,
+            "Mixed-boundary recovery remaps the exact post-removal active catalog");
+        Expect(agent.LastTrace.Decision.StructuralMap.Trigger ==
+                   KLEPStructuralMapTrigger.RegistrationRollbackRecovery &&
+               agent.LastTrace.Decision.StructuralMap.Disposition ==
+                   KLEPStructuralMapDisposition.Rejected &&
+               agent.LastTrace.Decision.StructuralMap.RejectedCatalogProposal,
+            "The trace retains both the rejected replacement proposal and recovered map");
+
+        neuron.RegisterExecutable(replacement);
+        KLEPAgentTickTrace retried = agent.Tick();
+        Expect(replacement.InitializeCount == 1 && replacement.IsNeuronOwned &&
+               retried.Decision.StructuralMap.Disposition ==
+                   KLEPStructuralMapDisposition.Accepted &&
+               agent.ExecutableMap.Snapshot.Roots.Count == 1 &&
+               agent.ExecutableMap.Snapshot.Roots[0].StableExecutableId ==
+                   replacement.StableId,
+            "A rejected replacement may be explicitly registered in a later valid revision");
+    }
+
+    private static void VerifyRemovalRecoveryFaultRequiresFreshMap()
+    {
+        var removalSentinel = new InvalidOperationException(
+            "removal before recovery fault");
+        var recoverySentinel = new InvalidOperationException(
+            "active catalog recovery fault");
+        ProbeExecutable original = MakeProbe(
+            "tandem.remove-recovery-fault.same-id",
+            0f,
+            KLEPExecutionMode.Tandem);
+        original.DefaultStatus = KLEPExecutableTickStatus.Running;
+        original.ExitAction = context => throw removalSentinel;
+        var neuron = new KLEPNeuron("neuron.remove-recovery-fault");
+        neuron.RegisterExecutable(original);
+        var observer = new SequencedStructuralObserver(
+            recoverySentinel,
+            faultOnCall: 3);
+        var agent = new KLEPAgent(
+            neuron,
+            null,
+            null,
+            observer,
+            null);
+        agent.Tick();
+
+        ProbeExecutable replacement = MakeProbe(
+            original.StableId,
+            0f,
+            KLEPExecutionMode.Tandem);
+        neuron.RemoveExecutable(original.StableId);
+        neuron.RegisterExecutable(replacement);
+        Exception observed = Catch(() => agent.Tick());
+        var aggregate = observed as AggregateException;
+
+        Expect(aggregate != null && aggregate.InnerExceptions.Count == 2 &&
+               ReferenceEquals(
+                   aggregate.InnerExceptions[0], removalSentinel) &&
+               ReferenceEquals(
+                   aggregate.InnerExceptions[1], recoverySentinel),
+            "A recovery Observer fault follows the preserved removal fault in aggregate order");
+        Expect(agent.ExecutableMap == null &&
+               agent.LastTrace.Decision.StructuralMap.Trigger ==
+                   KLEPStructuralMapTrigger.RegistrationRollbackRecovery &&
+               agent.LastTrace.Decision.StructuralMap.Disposition ==
+                   KLEPStructuralMapDisposition.Faulted &&
+               agent.LastTrace.Decision.StructuralMap.ActiveAssessment == null,
+            "A failed recovery leaves no stale proposed or prior assessment trusted as active");
+        Expect(replacement.InitializeCount == 0 && !replacement.IsNeuronOwned &&
+               neuron.GetRootExecutableDefinitionsSnapshot().Count == 0 &&
+               agent.GetRootExecutableRuntimeSnapshot().Count == 0,
+            "A recovery fault cannot restore a rejected replacement or removed runtime");
+
+        KLEPAgentTickTrace following = agent.Tick();
+        Expect(observer.CallCount == 4 &&
+               following.Decision.StructuralMap.Trigger ==
+                   KLEPStructuralMapTrigger.InitialCatalog &&
+               following.Decision.StructuralMap.Disposition ==
+                   KLEPStructuralMapDisposition.Accepted &&
+               agent.ExecutableMap != null &&
+               agent.ExecutableMap.Snapshot.Roots.Count == 0 &&
+               following.Decision.IsPatient,
+            "The next Tick must map the exact post-removal catalog before execution resumes");
     }
 
     private static void VerifyTickFaultIsTracedCleanedAndRethrown()
@@ -2515,6 +2735,43 @@ internal static class Program
             CleanupCount++;
             Events.Add("cleanup");
             CleanupAction?.Invoke(context);
+        }
+    }
+
+    private sealed class SequencedStructuralObserver :
+        IKLEPExecutableStructuralObserver
+    {
+        private readonly Exception fault;
+        private readonly int faultOnCall;
+
+        internal SequencedStructuralObserver(
+            Exception fault,
+            int faultOnCall)
+        {
+            this.fault = fault ?? throw new ArgumentNullException(nameof(fault));
+            if (faultOnCall < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(faultOnCall));
+            }
+
+            this.faultOnCall = faultOnCall;
+        }
+
+        public string StableId => "observer.structural.sequenced-test";
+        public string Version => "1";
+        public int CallCount { get; private set; }
+
+        public KLEPExecutableStructuralMap ObserveStructure(
+            KLEPExecutableCatalogSnapshot snapshot)
+        {
+            CallCount++;
+            if (CallCount == faultOnCall)
+            {
+                throw fault;
+            }
+
+            return KLEPBaselineStructuralObserver.Instance.ObserveStructure(
+                snapshot);
         }
     }
 

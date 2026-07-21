@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using Roll4d4.Klep.Cognition;
 using Roll4d4.Klep.Core;
+using Roll4d4.Klep.Desire;
 using Roll4d4.Klep.Emotion;
 using Roll4d4.Klep.Ethics;
 using Roll4d4.Klep.Memory;
@@ -16,6 +17,9 @@ internal static class Program
     private static void Main()
     {
         VerifyCoordinatorClosesOneOrderedCausalExperience();
+        VerifyFrictionOnlyAdvanceOwnsNoExperience();
+        VerifyDesireEvidenceIsValidatedCopiedAndReturnedWithoutANewPhase();
+        VerifyInvalidDesireEvidenceCannotAdvanceEmotionOrMemory();
         VerifyInvalidCausalityCannotAdvanceEmotionOrMemory();
         VerifyPostEmotionMemoryFaultRollsBackAndRetriesExactly();
         VerifyEvidenceAdaptersAreEligibleReadOnlyAndProvenanceBearing();
@@ -23,6 +27,28 @@ internal static class Program
         VerifyEquivalentRunsAreDeterministic();
 
         Console.WriteLine($"KLEP Cognition smoke passed: {assertions} assertions.");
+    }
+
+    private static void VerifyFrictionOnlyAdvanceOwnsNoExperience()
+    {
+        Fixture fixture = CreateFixture();
+        KLEPEmotionSnapshot idle =
+            fixture.Composition.AdvanceEmotionWithoutExperience(2);
+
+        Expect(idle.Tick == 2 &&
+               idle.Influences.Count == 0 &&
+               fixture.Coordinator.Emotion.Tick == 2,
+            "The composition advances one explicit friction-only Emotion Tick");
+        Expect(fixture.Coordinator.Memory.CurrentTick == 0 &&
+               fixture.Coordinator.LastTransition == null,
+            "A friction-only Tick creates no Ethics, Memory, or cognition transition");
+
+        CaptureThrows<ArgumentOutOfRangeException>(
+            () => fixture.Composition.AdvanceEmotionWithoutExperience(4),
+            "A skipped friction-only Emotion Tick must be rejected");
+        Expect(fixture.Coordinator.Emotion.Tick == 2 &&
+               fixture.Coordinator.Memory.CurrentTick == 0,
+            "A skipped friction-only Tick is rejected without partial state");
     }
 
     private static void VerifyCoordinatorClosesOneOrderedCausalExperience()
@@ -77,6 +103,118 @@ internal static class Program
             "Successful composition commits one Emotion Tick and one Memory Tick");
         Expect(fixture.SourceNeuron.CycleIndex == neuronTickBefore,
             "Cognition composition cannot advance the Neuron that supplied its observations");
+    }
+
+    private static void
+        VerifyDesireEvidenceIsValidatedCopiedAndReturnedWithoutANewPhase()
+    {
+        Fixture fixture = CreateFixture();
+        KLEPMemoryMoment prior = fixture.Request.Moments[0];
+        KLEPMemoryMoment consequence = fixture.Request.Moments[
+            fixture.Request.Moments.Count - 1];
+        KLEPDesireEffectVector desireEffects = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.ActionOwned,
+            fixture.Request.ActionOutcome.ExecutableStableId,
+            fixture.Request.ActionOutcome.RunIndex,
+            satisfactionBefore: 0.1f,
+            satisfactionAfter: 0.9f,
+            pressureBefore: 5f,
+            pressureAfter: 1f);
+        KLEPCognitionExperienceRequest<EventContext> request =
+            CopyRequestWithDesire(fixture.Request, desireEffects);
+
+        KLEPCognitionTransition<EventContext> transition =
+            fixture.Composition.Process(request);
+
+        Expect(ReferenceEquals(transition.DesireEffects, desireEffects) &&
+               ReferenceEquals(request.DesireEffects, desireEffects),
+            "Cognition returns the same immutable evaluated Desire vector instead of reevaluating it");
+        Expect(transition.Steps.Count == 3 &&
+               transition.Steps[0].Phase ==
+                   KLEPCognitionPhase.EthicsEvaluated &&
+               transition.Steps[1].Phase ==
+                   KLEPCognitionPhase.EmotionAdvanced &&
+               transition.Steps[2].Phase ==
+                   KLEPCognitionPhase.MemoryRecorded,
+            "Archiving Desire evidence adds no state-producing cognition phase");
+        Expect(transition.Experience.DesireEffects != null &&
+               !ReferenceEquals(
+                   transition.Experience.DesireEffects,
+                   desireEffects) &&
+               transition.Experience.DesireEffects.TransitionId ==
+                   desireEffects.TransitionId &&
+               transition.Experience.DesireEffects.Effects[0].Effect ==
+                   desireEffects.Effects[0].Effect &&
+               transition.Experience.DesireEffects.Effects[0]
+                   .ExplanationBefore == "Before helping." &&
+               transition.Experience.DesireEffects.Effects[0]
+                   .ExplanationAfter == "After helping." &&
+               transition.Experience.DesireEffects.Effects[0]
+                   .EvidenceIdsBefore.Count == 1 &&
+               transition.Experience.DesireEffects.Effects[0]
+                   .EvidenceIdsAfter.Count == 1 &&
+               transition.Experience.DesireEffects.Effects[0]
+                   .IsEligibleForAutomaticExpectationLearning,
+            "Memory receives a defensive archival copy with raw Desire effect and ActionOwned attribution");
+    }
+
+    private static void VerifyInvalidDesireEvidenceCannotAdvanceEmotionOrMemory()
+    {
+        Fixture wrongMomentFixture = CreateFixture();
+        KLEPMemoryMoment consequence = wrongMomentFixture.Request.Moments[
+            wrongMomentFixture.Request.Moments.Count - 1];
+        KLEPDesireEffectVector wrongMoment = DesireVector(
+            "unrelated.prior",
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.Unknown);
+        ExpectThrows<ArgumentException>(
+            () => wrongMomentFixture.Composition.Process(
+                CopyRequestWithDesire(
+                    wrongMomentFixture.Request,
+                    wrongMoment)),
+            "Cognition rejects Desire evidence not bound to the exact experience boundary MomentIds");
+        Expect(wrongMomentFixture.Coordinator.Emotion.Tick == 1 &&
+               wrongMomentFixture.Coordinator.Memory.CurrentTick == 0 &&
+               wrongMomentFixture.Coordinator.LastTransition == null,
+            "Desire MomentId preflight fails before Emotion or Memory can advance");
+
+        Fixture wrongActionFixture = CreateFixture();
+        KLEPMemoryMoment prior = wrongActionFixture.Request.Moments[0];
+        consequence = wrongActionFixture.Request.Moments[
+            wrongActionFixture.Request.Moments.Count - 1];
+        KLEPDesireEffectVector wrongAction = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.ActionOwned,
+            "action.someone-else",
+            wrongActionFixture.Request.ActionOutcome.RunIndex);
+        ExpectThrows<ArgumentException>(
+            () => wrongActionFixture.Composition.Process(
+                CopyRequestWithDesire(
+                    wrongActionFixture.Request,
+                    wrongAction)),
+            "Cognition rejects ActionOwned Desire evidence for another Executable run");
+        Expect(wrongActionFixture.Coordinator.Emotion.Tick == 1 &&
+               wrongActionFixture.Coordinator.Memory.CurrentTick == 0 &&
+               wrongActionFixture.Coordinator.LastTransition == null,
+            "ActionOwned attribution preflight fails before state-producing work");
+
+        Fixture externalFixture = CreateFixture();
+        prior = externalFixture.Request.Moments[0];
+        consequence = externalFixture.Request.Moments[
+            externalFixture.Request.Moments.Count - 1];
+        KLEPDesireEffectVector external = DesireVector(
+            prior.MomentId,
+            consequence.MomentId,
+            KLEPDesireEffectAttribution.External);
+        KLEPCognitionTransition<EventContext> accepted =
+            externalFixture.Composition.Process(
+                CopyRequestWithDesire(externalFixture.Request, external));
+        Expect(!accepted.Experience.DesireEffects.Effects[0]
+                   .IsEligibleForAutomaticExpectationLearning,
+            "External Desire change remains valid archived evidence without automatic-learning qualification");
     }
 
     private static void VerifyInvalidCausalityCannotAdvanceEmotionOrMemory()
@@ -524,6 +662,83 @@ internal static class Program
             context: new EventContext("event.help.2", apply: true),
             moments: new[] { prior, consequence },
             actionOutcome: action);
+    }
+
+    private static KLEPCognitionExperienceRequest<EventContext>
+        CopyRequestWithDesire(
+            KLEPCognitionExperienceRequest<EventContext> source,
+            KLEPDesireEffectVector desireEffects)
+    {
+        return new KLEPCognitionExperienceRequest<EventContext>(
+            source.ExperienceId,
+            source.MemoryTick,
+            source.EmotionTick,
+            source.EvaluationId,
+            source.EvaluationTick,
+            source.CauseOrigin,
+            source.ContextIdentity,
+            source.Context,
+            source.Moments,
+            source.ActionOutcome,
+            desireEffects);
+    }
+
+    private static KLEPDesireEffectVector DesireVector(
+        string priorMomentId,
+        string consequenceMomentId,
+        KLEPDesireEffectAttribution attributionKind,
+        string actionStableId = null,
+        long? actionRunIndex = null,
+        float satisfactionBefore = 0f,
+        float satisfactionAfter = 1f,
+        float pressureBefore = 1f,
+        float pressureAfter = 1f)
+    {
+        var system = new KLEPDesireSystem<DesireContext>(
+            "desire.cognition-owner",
+            new[]
+            {
+                new KLEPDesireDefinition<DesireContext>(
+                    "desire.help",
+                    "1",
+                    3f,
+                    new DesireEvaluator())
+            });
+        var identity = new KLEPDesireContextIdentity(
+            "desire.cognition-context",
+            "fixture.cognition-desire",
+            "1");
+        KLEPDesireSnapshot prior = system.Observe(
+            new KLEPDesireObservationRequest<DesireContext>(
+                "desire.cognition.prior",
+                100,
+                priorMomentId,
+                identity,
+                new DesireContext(
+                    satisfactionBefore,
+                    pressureBefore,
+                    "Before helping.")));
+        KLEPDesireSnapshot consequence = system.Observe(
+            new KLEPDesireObservationRequest<DesireContext>(
+                "desire.cognition.consequence",
+                101,
+                consequenceMomentId,
+                identity,
+                new DesireContext(
+                    satisfactionAfter,
+                    pressureAfter,
+                    "After helping.")));
+        var attribution = new KLEPDesireAttributionEvidence(
+            attributionKind,
+            "fixture.cognition-desire-attribution",
+            actionStableId,
+            actionRunIndex,
+            new[] { "fixture.cognition-desire-cause" });
+        return system.EvaluateTransition(new KLEPDesireTransitionRequest(
+            "desire.cognition-transition",
+            prior,
+            consequence,
+            attribution));
     }
 
     private static ProbeExecutable Action(string stableId, float score)
@@ -1040,6 +1255,45 @@ internal static class Program
         {
             emotion.Advance(emotion.Tick + 1);
             throw new ApplicationException("Project policy failure.");
+        }
+    }
+
+    private sealed class DesireContext
+    {
+        internal DesireContext(
+            float satisfaction,
+            float pressure,
+            string explanation)
+        {
+            Satisfaction = satisfaction;
+            Pressure = pressure;
+            Explanation = explanation;
+        }
+
+        internal float Satisfaction { get; }
+        internal float Pressure { get; }
+        internal string Explanation { get; }
+    }
+
+    private sealed class DesireEvaluator : IKLEPDesireEvaluator<DesireContext>
+    {
+        public string EvaluatorId => "fixture.cognition-desire-evaluator";
+        public string EvaluatorVersion => "1";
+
+        public KLEPDesireAssessment Evaluate(
+            DesireContext context,
+            long desireTick)
+        {
+            return new KLEPDesireAssessment(
+                context.Satisfaction,
+                context.Pressure,
+                context.Explanation,
+                new[]
+                {
+                    desireTick == 100
+                        ? "fixture.desire.before"
+                        : "fixture.desire.after"
+                });
         }
     }
 

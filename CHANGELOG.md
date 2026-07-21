@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.0.0-preview.3 - 2026-07-21
+
+- Added the portable Desire system for ordered project-authored preferred
+  conditions, immutable satisfaction/deficit/pressure snapshots, and raw
+  attributed transition effects. Desire records value; it does not select or
+  learn.
+- Added independent Learned Expectations tables for exact later-Key evidence
+  and ActionOwned Desire effects, including support, variance, prediction
+  error, and confidence. The critic does not determine terminal value or own
+  execution.
+- Added the Agent-owned `KLEPIntentionState` V1 ledger for adopted, suspended,
+  resumed, completed, and abandoned root Solo Goals. It records actual runtime
+  commitment without adding attraction, planning, or execution authority.
+- Added engine-independent timestamped `HumanSighting` behaviors that exercise
+  ordinary cross-Neuron Key copying and deterministic freshest-report
+  reduction without treating copied payloads as world truth.
+- Allowed an explicit Agent policy to apply learned ActionOwned Desire effects
+  as one eligibility-gated, fully traced score component.
+- Memory and cognition may preserve an already-evaluated Desire effect beside
+  lifecycle, Ethics, and Emotion evidence without evaluating Desire or
+  selecting behavior.
+- Hardened Observer-accepted catalog removal batches: every accepted removal
+  settles in stable order despite teardown faults, and mixed remove/register
+  failures recover a map that matches the surviving runtime catalog.
+- Expanded the portable public harness to 17 executable suites and 4,676
+  assertion executions.
+
 ## 2.0.0-preview.2 - 2026-07-19
 
 Public milestone: **Preview 0.1.1**.

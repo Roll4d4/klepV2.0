@@ -114,7 +114,9 @@ namespace Roll4d4.Klep.Core
             IKLEPExecutableStructuralObserver structuralObserver,
             KLEPProjectedSatisfactionPolicy satisfactionPolicy,
             IKLEPCandidateStateProjectionObserver
-                candidateStateProjectionObserver)
+                candidateStateProjectionObserver,
+            IKLEPLearnedDesireSelectionPolicy
+                learnedDesireSelectionPolicy)
         {
             if (float.IsNaN(certaintyThreshold) || float.IsInfinity(certaintyThreshold))
             {
@@ -158,8 +160,37 @@ namespace Roll4d4.Klep.Core
                 List<KLEPExecutableBase> registrationBoundary =
                     CapturePendingRegistrationBoundary();
 
-                ApplyRemovals(workingSnapshot, executionSteps,
-                    ref faultExecutableId, ref faultStage);
+                List<CatalogRemovalFault> removalFaults = ApplyRemovals(
+                    workingSnapshot,
+                    executionSteps);
+                if (removalFaults.Count > 0)
+                {
+                    faultExecutableId =
+                        removalFaults[0].ExecutableStableId;
+                    faultStage = removalFaults[0].Stage;
+                    // Removal callbacks have already begun, so their accepted
+                    // catalog sub-boundary cannot be rolled back. Do not let
+                    // uninitialized registrations from the same proposal make
+                    // the accepted map advertise runtimes that do not exist.
+                    if (registrationBoundary.Count > 0)
+                    {
+                        try
+                        {
+                            RejectRegistrationBoundary(
+                                registrationBoundary,
+                                effectiveStructuralObserver);
+                        }
+                        catch (Exception recoveryFault)
+                        {
+                            ThrowCatalogRemovalFaults(
+                                removalFaults,
+                                recoveryFault);
+                        }
+                    }
+
+                    ThrowCatalogRemovalFaults(removalFaults);
+                }
+
                 RearmRegisteredRuntimes();
 
                 List<KLEPExecutionResult> initializationResults;
@@ -226,6 +257,7 @@ namespace Roll4d4.Klep.Core
                     guidanceAdvice,
                     satisfactionPolicy,
                     candidateStateProjectionObserver,
+                    learnedDesireSelectionPolicy,
                     soloCandidates,
                     executionSteps,
                     out selectedExecutableId,
@@ -515,20 +547,20 @@ namespace Roll4d4.Klep.Core
             return registrations;
         }
 
-        private void ApplyRemovals(
+        private List<CatalogRemovalFault> ApplyRemovals(
             KLEPKeySnapshot snapshot,
-            List<KLEPExecutableStepTrace> executionSteps,
-            ref string faultExecutableId,
-            ref KLEPExecutableLifecycleStage faultStage)
+            List<KLEPExecutableStepTrace> executionSteps)
         {
             var removalIds = new List<string>(pendingRemovals);
             removalIds.Sort(IdComparer);
             pendingRemovals.Clear();
+            var faults = new List<CatalogRemovalFault>();
 
             foreach (string stableId in removalIds)
             {
-                faultExecutableId = stableId;
-                faultStage = KLEPExecutableLifecycleStage.Exit;
+                string removalFaultExecutableId = stableId;
+                KLEPExecutableLifecycleStage removalFaultStage =
+                    KLEPExecutableLifecycleStage.Exit;
                 if (runtimes.TryGetValue(
                         stableId, out KLEPExecutableRuntime runtime))
                 {
@@ -545,25 +577,19 @@ namespace Roll4d4.Klep.Core
                                 cancelled));
                         }
                     }
-                    catch
+                    catch (Exception fault)
                     {
                         AddFaultResult(runtime, executionSteps,
                             KLEPExecutableStepKind.Cancellation);
-                        faultStage = runtime.LastFaultStage ?? faultStage;
-                        faultExecutableId = runtime.LastFaultExecutableId ??
-                            faultExecutableId;
-                        runtime.Executable.ReleaseNeuronOwnership(StableId);
-                        runtimes.Remove(stableId);
-                        if (executables.Remove(stableId))
-                        {
-                            registrationTenureIds.Remove(stableId);
-                        }
-                        if (IdComparer.Equals(currentSoloExecutableId, stableId))
-                        {
-                            currentSoloExecutableId = null;
-                        }
-
-                        throw;
+                        removalFaultStage = runtime.LastFaultStage ??
+                            removalFaultStage;
+                        removalFaultExecutableId =
+                            runtime.LastFaultExecutableId ??
+                            removalFaultExecutableId;
+                        faults.Add(new CatalogRemovalFault(
+                            fault,
+                            removalFaultExecutableId,
+                            removalFaultStage));
                     }
                 }
 
@@ -583,6 +609,8 @@ namespace Roll4d4.Klep.Core
                     currentSoloExecutableId = null;
                 }
             }
+
+            return faults;
         }
 
         private List<KLEPExecutionResult> ApplyRegistrations(
@@ -886,6 +914,8 @@ namespace Roll4d4.Klep.Core
             KLEPProjectedSatisfactionPolicy satisfactionPolicy,
             IKLEPCandidateStateProjectionObserver
                 candidateStateProjectionObserver,
+            IKLEPLearnedDesireSelectionPolicy
+                learnedDesireSelectionPolicy,
             List<CandidateEvaluation> candidates,
             List<KLEPExecutableStepTrace> allSteps,
             out string selectedExecutableId,
@@ -949,6 +979,34 @@ namespace Roll4d4.Klep.Core
                     score);
                 candidates.Add(candidate);
                 candidateById.Add(candidate.StableId, candidate);
+            }
+
+            if (learnedDesireSelectionPolicy != null)
+            {
+                try
+                {
+                    ApplyLearnedDesireExpectations(
+                        snapshot,
+                        learnedDesireSelectionPolicy,
+                        solos,
+                        candidates,
+                        candidateById);
+                }
+                catch
+                {
+                    for (int index = 0; index < candidates.Count; index++)
+                    {
+                        if (candidates[index].IsEligible)
+                        {
+                            faultExecutableId = candidates[index].StableId;
+                            break;
+                        }
+                    }
+
+                    faultStage = KLEPExecutableLifecycleStage
+                        .LearnedDesireExpectationEvaluation;
+                    throw;
+                }
             }
 
             try
@@ -1198,6 +1256,350 @@ namespace Roll4d4.Klep.Core
             KLEPProjectedSatisfactionEvaluation evaluation =
                 policy.Evaluate(request, projection);
             return authoredScore.WithProjectedSatisfaction(evaluation);
+        }
+
+        private void ApplyLearnedDesireExpectations(
+            KLEPKeySnapshot snapshot,
+            IKLEPLearnedDesireSelectionPolicy policy,
+            IReadOnlyList<KLEPExecutableRuntime> solos,
+            List<CandidateEvaluation> candidates,
+            Dictionary<string, CandidateEvaluation> candidateById)
+        {
+            var requested = new List<KLEPLearnedDesireSelectionCandidate>();
+            for (int index = 0; index < solos.Count; index++)
+            {
+                KLEPExecutableRuntime runtime = solos[index];
+                CandidateEvaluation candidate =
+                    candidateById[runtime.Executable.StableId];
+                if (!candidate.IsEligible)
+                {
+                    continue;
+                }
+
+                if (candidate.ScoreEvaluation == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Eligible candidate '{candidate.StableId}' has no score.");
+                }
+
+                if (acceptedStructuralMap == null ||
+                    !acceptedStructuralMap.IsValid ||
+                    !acceptedStructuralMap.TryGetExecutable(
+                        candidate.StableId,
+                        out KLEPExecutableStructuralNode node) ||
+                    !node.IsRoot)
+                {
+                    throw new InvalidOperationException(
+                        $"Eligible candidate '{candidate.StableId}' is missing " +
+                        "from the valid accepted root map.");
+                }
+
+                requested.Add(new KLEPLearnedDesireSelectionCandidate(
+                    candidate.StableId,
+                    node.RootTenureId,
+                    candidate.Score.Value,
+                    IdComparer.Equals(
+                        candidate.StableId, currentSoloExecutableId) &&
+                    runtime.State == KLEPExecutableState.Running));
+            }
+
+            // The optional authority is not consulted when Core has nothing
+            // already eligible for it to compare.
+            if (requested.Count == 0)
+            {
+                return;
+            }
+
+            string policyId = RequireObserverIdentity(
+                policy.StableId,
+                "Learned Desire selection policy stable ID");
+            string policyVersion = RequireObserverIdentity(
+                policy.Version,
+                "Learned Desire selection policy version");
+            string bindingFingerprint = RequireObserverIdentity(
+                policy.BindingFingerprint,
+                "Learned Desire selection binding fingerprint");
+            var request = new KLEPLearnedDesireSelectionRequest(
+                policyId,
+                policyVersion,
+                bindingFingerprint,
+                acceptedStructuralMap,
+                snapshot,
+                requested);
+
+            KLEPLearnedDesireSelectionBatch batch = policy.Evaluate(request);
+            if (!IdComparer.Equals(policyId, policy.StableId) ||
+                !IdComparer.Equals(policyVersion, policy.Version) ||
+                !IdComparer.Equals(
+                    bindingFingerprint, policy.BindingFingerprint))
+            {
+                throw new InvalidOperationException(
+                    $"Learned Desire policy '{policyId}' changed identity or " +
+                    "bindings during evaluation.");
+            }
+
+            ValidateLearnedDesireBatch(request, batch);
+
+            // Build every adjusted score before publishing any of them into the
+            // candidate set. Overflow or malformed evidence therefore faults
+            // the whole batch without a partially influenced trace.
+            var adjusted = new List<CandidateEvaluation>(requested.Count);
+            for (int index = 0; index < requested.Count; index++)
+            {
+                KLEPLearnedDesireSelectionCandidate requestedCandidate =
+                    requested[index];
+                CandidateEvaluation original =
+                    candidateById[requestedCandidate.ExecutableStableId];
+                KLEPLearnedDesireCandidateEvaluation boundEvaluation =
+                    batch.Candidates[index].BindAgentEvidence(request);
+                KLEPExecutableScoreEvaluation score = original.ScoreEvaluation
+                    .WithLearnedDesireExpectation(boundEvaluation);
+                adjusted.Add(original.WithScore(score));
+            }
+
+            for (int index = 0; index < adjusted.Count; index++)
+            {
+                CandidateEvaluation value = adjusted[index];
+                candidateById[value.StableId] = value;
+                for (int candidateIndex = 0;
+                     candidateIndex < candidates.Count;
+                     candidateIndex++)
+                {
+                    if (IdComparer.Equals(
+                            candidates[candidateIndex].StableId,
+                            value.StableId))
+                    {
+                        candidates[candidateIndex] = value;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static void ValidateLearnedDesireBatch(
+            KLEPLearnedDesireSelectionRequest request,
+            KLEPLearnedDesireSelectionBatch batch)
+        {
+            if (batch == null)
+            {
+                throw new InvalidOperationException(
+                    "A learned Desire policy returned no result batch.");
+            }
+
+            if (!IdComparer.Equals(
+                    request.PolicyStableId, batch.PolicyStableId) ||
+                !IdComparer.Equals(
+                    request.PolicyVersion, batch.PolicyVersion) ||
+                !IdComparer.Equals(
+                    request.BindingFingerprint, batch.BindingFingerprint) ||
+                !IdComparer.Equals(
+                    request.CatalogRevision, batch.CatalogRevision) ||
+                !request.CatalogFingerprint.Equals(batch.CatalogFingerprint) ||
+                !request.CurrentEvidenceFingerprint.Equals(
+                    batch.CurrentEvidenceFingerprint))
+            {
+                throw new InvalidOperationException(
+                    "A learned Desire result batch was bound to a different " +
+                    "policy, binding set, catalog, or Key snapshot.");
+            }
+
+            if (batch.Candidates.Count != request.Candidates.Count)
+            {
+                throw new InvalidOperationException(
+                    "A learned Desire result batch was not complete for the " +
+                    "ordered eligible candidate set.");
+            }
+
+            for (int index = 0; index < request.Candidates.Count; index++)
+            {
+                KLEPLearnedDesireSelectionCandidate expected =
+                    request.Candidates[index];
+                KLEPLearnedDesireCandidateEvaluation actual =
+                    batch.Candidates[index];
+                if (!IdComparer.Equals(
+                        request.PolicyStableId, actual.PolicyStableId) ||
+                    !IdComparer.Equals(
+                        request.PolicyVersion, actual.PolicyVersion) ||
+                    !IdComparer.Equals(
+                        request.BindingFingerprint,
+                        actual.BindingFingerprint) ||
+                    !batch.EvidenceFrame.Equals(actual.EvidenceFrame) ||
+                    !IdComparer.Equals(
+                        expected.ExecutableStableId,
+                        actual.TargetExecutableId) ||
+                    !IdComparer.Equals(
+                        expected.RootTenureId,
+                        actual.TargetRootTenureId) ||
+                    expected.PrePolicyScore != actual.PrePolicyScore ||
+                    expected.IsCurrentRunning != actual.WasCurrentRunning ||
+                    float.IsNaN(actual.ScoreContribution) ||
+                    float.IsInfinity(actual.ScoreContribution))
+                {
+                    throw new InvalidOperationException(
+                        $"Learned Desire result {index} did not exactly match " +
+                        "its requested policy, binding, root, tenure, or score.");
+                }
+
+                if (actual.Disposition !=
+                    KLEPLearnedDesireCandidateDisposition.Unbound)
+                {
+                    if (!request.AcceptedStructuralMap.TryGetExecutable(
+                            actual.EffectSourceExecutableId,
+                            out KLEPExecutableStructuralNode effectSource) ||
+                        !IdComparer.Equals(
+                            expected.RootTenureId,
+                            effectSource.RootTenureId))
+                    {
+                        throw new InvalidOperationException(
+                            $"Learned Desire result '{actual.TargetExecutableId}' " +
+                            "used an effect source outside its accepted root tenure.");
+                    }
+                }
+
+                double tracedContribution = 0d;
+                for (int desireIndex = 0;
+                     desireIndex < actual.Desires.Count;
+                     desireIndex++)
+                {
+                    KLEPLearnedDesireContributionTrace desire =
+                        actual.Desires[desireIndex];
+                    if (desire.LearnedRevision !=
+                        actual.EvidenceFrame.CriticRevision)
+                    {
+                        throw new InvalidOperationException(
+                            "A learned Desire term used a different critic revision.");
+                    }
+
+                    float contribution = ValidateLearnedDesireTerm(desire);
+                    if (float.IsNaN(contribution) ||
+                        float.IsInfinity(contribution))
+                    {
+                        throw new InvalidOperationException(
+                            "A learned Desire term was not finite.");
+                    }
+
+                    tracedContribution += contribution;
+                    if (double.IsNaN(tracedContribution) ||
+                        double.IsInfinity(tracedContribution) ||
+                        tracedContribution > float.MaxValue ||
+                        tracedContribution < -float.MaxValue)
+                    {
+                        throw new InvalidOperationException(
+                            "Learned Desire terms exceeded the finite score range.");
+                    }
+                }
+
+                if ((float)tracedContribution != actual.ScoreContribution)
+                {
+                    throw new InvalidOperationException(
+                        $"Learned Desire result '{actual.TargetExecutableId}' " +
+                        "did not equal the sum of its per-Desire terms.");
+                }
+            }
+        }
+
+        private static float ValidateLearnedDesireTerm(
+            KLEPLearnedDesireContributionTrace desire)
+        {
+            bool mustAbstain;
+            switch (desire.Disposition)
+            {
+                case KLEPLearnedDesireContributionDisposition.Applied:
+                    if (desire.Support <= 0 ||
+                        desire.Confidence <= 0f ||
+                        desire.CurrentWeight <= 0f ||
+                        desire.CurrentPressure <= 0f ||
+                        desire.SelectionScale <= 0f)
+                    {
+                        throw new InvalidOperationException(
+                            "An applied learned Desire term lacks positive " +
+                            "support, confidence, weight, pressure, or scale.");
+                    }
+
+                    mustAbstain = false;
+                    break;
+                case KLEPLearnedDesireContributionDisposition.UnknownEvidence:
+                    if (desire.Support != 0)
+                    {
+                        throw new InvalidOperationException(
+                            "Unknown learned Desire evidence cannot claim support.");
+                    }
+
+                    mustAbstain = true;
+                    break;
+                case KLEPLearnedDesireContributionDisposition.ZeroWeight:
+                    if (desire.CurrentWeight != 0f)
+                    {
+                        throw new InvalidOperationException(
+                            "A zero-weight abstention must carry zero weight.");
+                    }
+
+                    mustAbstain = true;
+                    break;
+                case KLEPLearnedDesireContributionDisposition.ZeroPressure:
+                    if (desire.CurrentPressure != 0f)
+                    {
+                        throw new InvalidOperationException(
+                            "A zero-pressure abstention must carry zero pressure.");
+                    }
+
+                    mustAbstain = true;
+                    break;
+                case KLEPLearnedDesireContributionDisposition.ZeroConfidence:
+                    if (desire.Confidence != 0f)
+                    {
+                        throw new InvalidOperationException(
+                            "A zero-confidence abstention must carry zero confidence.");
+                    }
+
+                    mustAbstain = true;
+                    break;
+                case KLEPLearnedDesireContributionDisposition.ZeroScale:
+                    if (desire.SelectionScale != 0f)
+                    {
+                        throw new InvalidOperationException(
+                            "A zero-scale abstention must carry zero scale.");
+                    }
+
+                    mustAbstain = true;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "A learned Desire term has an unknown disposition.");
+            }
+
+            if (mustAbstain)
+            {
+                if (desire.ScoreContribution != 0f)
+                {
+                    throw new InvalidOperationException(
+                        "A learned Desire abstention must contribute exactly zero.");
+                }
+
+                return 0f;
+            }
+
+            double calculated =
+                (double)desire.SelectionScale * desire.CurrentWeight *
+                desire.CurrentPressure * desire.Confidence * desire.MeanEffect;
+            if (double.IsNaN(calculated) ||
+                double.IsInfinity(calculated) ||
+                calculated > float.MaxValue ||
+                calculated < -float.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "A learned Desire term exceeded the finite score range.");
+            }
+
+            float expected = (float)calculated;
+            if (expected != desire.ScoreContribution)
+            {
+                throw new InvalidOperationException(
+                    "A learned Desire term does not match the accepted " +
+                    "scale * weight * pressure * confidence * mean formula.");
+            }
+
+            return expected;
         }
 
         private static void ValidateCandidateStateProjection(
@@ -1644,6 +2046,10 @@ namespace Roll4d4.Klep.Core
             KLEPStructuralMapDecisionTrace attemptedTrace =
                 currentStructuralMapTrace;
             neuron.RejectProposedCatalogChanges();
+            // The proposal was already accepted structurally, but its runtime
+            // registration boundary did not commit. Until the actual catalog
+            // is observed again, no assessment is trusted as active.
+            acceptedStructuralMap = null;
             KLEPExecutableStructuralMap recovered;
             try
             {
@@ -1975,6 +2381,64 @@ namespace Roll4d4.Klep.Core
         private static void Rethrow(Exception fault)
         {
             ExceptionDispatchInfo.Capture(fault).Throw();
+        }
+
+        private static void ThrowCatalogRemovalFaults(
+            IReadOnlyList<CatalogRemovalFault> faults,
+            Exception recoveryFault = null)
+        {
+            if (faults == null || faults.Count == 0)
+            {
+                if (recoveryFault != null)
+                {
+                    Rethrow(recoveryFault);
+                }
+
+                return;
+            }
+
+            if (faults.Count == 1 && recoveryFault == null)
+            {
+                Rethrow(faults[0].Exception);
+                throw new InvalidOperationException(
+                    "Unreachable catalog-removal fault path.");
+            }
+
+            var exceptions = new List<Exception>(
+                faults.Count + (recoveryFault == null ? 0 : 1));
+            foreach (CatalogRemovalFault fault in faults)
+            {
+                exceptions.Add(fault.Exception);
+            }
+
+            if (recoveryFault != null)
+            {
+                exceptions.Add(recoveryFault);
+            }
+
+            throw new AggregateException(
+                "Several root Executables faulted while an accepted catalog " +
+                "removal boundary was reconciled, or its active map recovery " +
+                "also faulted.",
+                exceptions);
+        }
+
+        private readonly struct CatalogRemovalFault
+        {
+            internal CatalogRemovalFault(
+                Exception exception,
+                string executableStableId,
+                KLEPExecutableLifecycleStage stage)
+            {
+                Exception = exception ??
+                    throw new ArgumentNullException(nameof(exception));
+                ExecutableStableId = executableStableId ?? string.Empty;
+                Stage = stage;
+            }
+
+            internal Exception Exception { get; }
+            internal string ExecutableStableId { get; }
+            internal KLEPExecutableLifecycleStage Stage { get; }
         }
 
         private readonly struct BufferedOutput

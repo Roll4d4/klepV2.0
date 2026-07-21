@@ -30,9 +30,21 @@ The protected KLEP vocabulary is:
   advanced by the Agent through an explicit lifecycle;
 - Goals are Solo or Tandem Executables with immutable authored child recipes
   and Agent-owned runtime progress; and
-- Observer or higher-cognition systems validate and map the Executable graph,
-  project possibilities, and may rank only behavior that ordinary Locks already
-  made eligible; the Agent alone decides and fires.
+- Intention is the Agent-owned post-decision account of adopted root Solo Goal
+  ends; it records commitment history but grants no selection or execution
+  authority;
+- Desire is a separate project-authored account of preferred conditions,
+  present satisfaction, deficit, pressure, and experienced satisfaction change;
+- Emotion is a separate felt two-axis state and motion, never an alias for
+  Desire; and
+- Observer is a non-authoritative introspective reasoning service: it validates
+  and maps the Executable graph, maintains immutable evidence-bound self-models,
+  queries independently owned learned expectations, answers read-only
+  questions, projects possibilities, and ranks only behavior that ordinary
+  Locks already made eligible; the Agent alone decides and fires.
+- LearnedExpectations is a separate critic authority: it retains empirical
+  outcome estimates and confidence but owns no terminal value, eligibility,
+  selection, execution, or factual experience.
 
 These concepts may not be renamed, merged, split, or assigned new meaning by an
 implementation convenience. A semantic change requires an accepted decision,
@@ -47,11 +59,12 @@ KLEP keeps three categories separate:
    rule; and
 3. learning, recall, planning, or imagination may propose direction.
 
-A proposal is not world truth. Memory cannot manufacture a current Key, and
-an Observer map or projection cannot open a Lock. The Agent evaluates actual
-Lock truth from the Neuron's immutable snapshot before influence. Admission or
-execution of model-invented definitions and capabilities remains outside the
-current approved contracts.
+A proposal is not world truth. Memory cannot manufacture a current Key, and an
+Observer self-model, dependency proposal, map, or projection cannot open a Lock.
+It also cannot rewrite an authored Goal recipe or install itself as live work.
+The Agent evaluates actual Lock truth from the Neuron's immutable snapshot
+before influence. Admission or execution of model-invented definitions and
+capabilities remains outside the current approved contracts.
 
 ## Determinism and time
 
@@ -88,10 +101,27 @@ authored successful-run emission relations, not proof of final persistence,
 removal, or coexistence. The map is evidence for the Agent, not a command and
 not a claim that current Locks are open.
 
-KLEP's default comparison of projected benefit remains designer-owned and
-inspectable. A desire is an immutable desired Key/Lock expression with a finite
-weight and optional finite pressure. For an already-eligible Solo candidate, an
-optional Observer may supply a complete provenance-bearing Key-presence state
+An Observer may bind that accepted map to immutable completed Key evidence and
+retain it as a self-model for deterministic read-only queries. A structural
+dependency proposal may preserve producer alternatives and authored Lock
+expressions, but it is neither a selected route nor an executable sequence.
+Concrete search, branch choice, cost, lifetime, and adoption policy require
+separate accepted decisions. Explicit reasoning does not depend on low
+confidence and grants no selection or execution authority.
+
+An empirical expectation is also not world truth. Independently owned
+`KLEPLearnedExpectations` records how often an exact Key outcome followed an
+exact mapped behavior in an exact project context and horizon. It may also
+learn the raw per-Desire effect that followed an exact ActionOwned transition.
+Likelihood or mean effect describes observed experience; separate expectation
+confidence describes support. None changes a `DeclaredOutput`, applies Desire
+weight or pressure, opens a Lock, creates eligibility, or commands the Agent.
+
+KLEP's existing Core comparison of projected benefit remains designer-owned and
+inspectable. It is a compatibility scoring policy over immutable desired
+Key/Lock expressions; despite the historical `KLEPAgentDesire` type name, it is
+not the independent Desire subsystem. For an already-eligible Solo candidate,
+an optional Observer may supply a complete provenance-bearing Key-presence state
 at successful-run completion. The baseline abstains with zero influence when
 that state is unknown. For a complete projection, the default contribution is
 the checked sum of:
@@ -101,9 +131,18 @@ weight * pressure * (projectedTruth - currentTruth)
 ```
 
 where each truth is `0` or `1` and omitted pressure is `1`. Unit weights and
-pressures therefore reproduce the net change in the count of satisfied desires.
+pressures therefore reproduce the net change in the count of satisfied desired
+Key/Lock expressions.
 Core does not assign universal meanings or weights to hunger, safety, happiness,
 ethics, or any other project concept.
+
+The independent Desire subsystem evaluates project-authored preferred
+conditions against observed contexts. It records satisfaction in `[0,1]`, exact
+deficit `1 - satisfaction`, stable nonnegative authored importance, nonnegative
+present pressure, and raw per-Desire satisfaction change across an experience.
+It produces no aggregate reward or selection score in its first slice. Emotion
+remains a distinct felt state: a Desire effect does not manufacture an Emotion,
+and an Emotion position does not silently redefine what is desired.
 
 ## Causality and inspectability
 
@@ -114,7 +153,8 @@ Every material decision must retain enough immutable evidence to explain:
 - each authored or external score component;
 - which Executable advanced and through which lifecycle stages;
 - which Key operations were actually emitted and when they became visible;
-- which higher-cognition evidence was consulted; and
+- which higher-cognition evidence was consulted;
+- which evidence-bound Observer model and query produced a proposal; and
 - which fault, cancellation, success, or failure actually occurred.
 
 Diagnostics are outward-only views. Looking at history must not change the
@@ -128,10 +168,10 @@ definitions; mutable runtime state belongs to per-Agent or explicitly shared
 runtime owners.
 
 Subsystem ownership is explicit. Memory, Emotion, Agent learning, Key stores,
-Executable catalogs, Agent-owned lifecycle/Goal runtimes, Observer maps, and
-future model state are not ambient globals and do not become one another's
-hidden mutation surface. The Neuron may guard a storage boundary, but guarding
-storage is not selection or firing authority.
+Executable catalogs, Agent-owned lifecycle/Goal runtimes, Observer maps and
+self-models, and future model state are not ambient globals and do not become
+one another's hidden mutation surface. The Neuron may guard a storage boundary,
+but guarding storage is not selection or firing authority.
 
 ## Trust boundary
 
