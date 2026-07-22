@@ -84,6 +84,54 @@ layers, install its result into a Goal, or create a second selection/fire path.
 Any later policy that selects, adopts, materializes, or executes a proposal
 requires a separate accepted contract.
 
+## Goal Structural Solution V1
+
+The accepted Goal Structural Solution query is the first narrow route-selection
+policy over that mapped evidence. A project associates one explicit target Key
+with one authored root Solo `KLEPGoal`. That target is desired structural
+metadata; it is not inferred from or added to the Goal's `DeclaredOutputs`.
+The requesting Goal has no authored layers and no declared outputs, so the query
+cannot silently replace or combine an authored child recipe.
+
+The pure solver reads only the exact accepted structural map. Current Keys,
+payloads, evidence fingerprints, Lock truth, Emotion, Desire, Memory, learned
+expectations, Agent scores, and runtime progress do not participate in route
+choice. It searches backward from the target through guaranteed successful
+`DeclaredOutputs` and applies this deterministic V1 policy:
+
+- every positive dependency under `All` is retained;
+- `Any` chooses a complete alternative with the fewest distinct delegated root
+  executions, then the ordinal canonical route as its tie-break;
+- one delegated root shared by several dependencies is counted and scheduled
+  once in the structural solution;
+- `Not` expressions remain explicit runtime conditions because the map has no
+  guaranteed Key-removal relation;
+- a positive leaf with no mapped producer remains an explicit external runtime
+  condition rather than becoming an invented effect; and
+- a cyclic path or a producer that is Goal-owned, Tandem, a root Goal, or the
+  requesting Goal itself is not a delegable V1 step.
+
+If no complete route through delegable roots exists, the provider returns no
+solution. It does not weaken Locks or manufacture a fallback. A solved route is
+an immutable dependency-first ordering of exact existing root Solo non-Goal
+identities and registration tenures, plus its target, retained runtime
+conditions, cost, canonical identity, and diagnostics. It is structural
+evidence only: it neither reparents nor clones an Executable, mutates a Goal,
+opens a Lock, selects a root, or advances a runtime.
+
+The solution binds the provider identity/version, exact accepted catalog
+revision and fingerprint, requesting Goal identity and tenure, target Key, and
+every delegated root identity and tenure. Because route choice reads no Key
+evidence, the same exact solution may be cached across Key additions, removal,
+replacement, payload changes, and Tick/wave changes. A provider identity/version,
+catalog revision/fingerprint, requesting-Goal tenure, or delegated-root tenure
+change invalidates it before adoption or continued use. `DeclaredOutputs`
+remain cumulative successful-run emission guarantees; the solution does not
+claim that emitted Keys persist until a later step or coexist with one another.
+
+Only the Agent may adopt this evidence through the separately accepted
+structural-Goal execution boundary in `AGENT_CONTRACT.md`.
+
 ## Read-only learned expectation boundary
 
 The independent `KLEPLearnedExpectations` authority may maintain a derived
@@ -327,21 +375,22 @@ allows other evidence models to replace it.
 
 ## Deferred reasoning
 
-Structural planning is now the Observer's revision-bound mapping responsibility;
-there is no required separate Planner authority. `DeclaredOutputs` supplies the
-guaranteed successful-run Key-ID emission promise. The Observer may retain the
-accepted map with completed Key evidence and expose inspectable multi-step
-reachability, structural dependency proposals, and candidate projections.
-Complete successful-completion presence still requires the explicit projection
-seam above. The Agent evaluates current Locks and decides which eligible Solo to
-advance.
+Structural planning is the Observer's revision-bound mapping and query
+responsibility; there is no required separate Planner authority.
+`DeclaredOutputs` supplies the guaranteed successful-run Key-ID emission
+promise. The Observer may retain the accepted map with completed Key evidence
+and expose inspectable multi-step reachability, dependency proposals, candidate
+projections, and the narrow accepted structural solution above. Complete
+successful-completion presence still requires the explicit projection seam.
+The Agent evaluates current Locks and remains the only live decision owner.
 
-The present structural proposal deliberately does not define a concrete planner
-search or adoption policy. Target forms, cost and tie-breaking, `Any` branch
-choice, operational treatment of `Not`, cycle handling, payload conditions, Key
-lifetime/removal/coexistence assumptions, proposal lifetime and invalidation,
-and conversion into an immutable Goal recipe remain open. A project policy may
-reason over the evidence, but it gains no live execution authority by doing so.
+V1 now defines one Key-target, distinct-root-count, canonical-tie route policy
+for empty authored root Solo Goals. Other target forms and costs, expectation-
+weighted routes, payload conditions, active deletion planning, guarantees about
+Key lifetime or coexistence, cyclic execution, Goal/Tandem delegation, dynamic
+recipe manufacture, and routes that invent definitions remain open. A project
+policy may reason beyond V1, but it gains no live execution authority by doing
+so.
 
 Nora/Aron breadth-versus-depth competition is not required when the complete
 graph is explicitly mapped. It remains an optional future search/resource

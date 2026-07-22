@@ -13,6 +13,8 @@ namespace Roll4d4.Klep.Core
         private static readonly StringComparer IdComparer = StringComparer.Ordinal;
         private readonly KLEPAgentDecisionRuntime decisionRuntime;
         private readonly IKLEPExecutableStructuralObserver structuralObserver;
+        private readonly IKLEPGoalStructuralSolutionObserver
+            goalStructuralSolutionObserver;
         private readonly IKLEPCandidateStateProjectionObserver
             candidateStateProjectionObserver;
         private readonly KLEPProjectedSatisfactionPolicy satisfactionPolicy;
@@ -71,7 +73,9 @@ namespace Roll4d4.Klep.Core
             IKLEPCandidateStateProjectionObserver
                 candidateStateProjectionObserver = null,
             IKLEPLearnedDesireSelectionPolicy
-                learnedDesireSelectionPolicy = null)
+                learnedDesireSelectionPolicy = null,
+            IKLEPGoalStructuralSolutionObserver
+                goalStructuralSolutionObserver = null)
         {
             Neuron = neuron ?? throw new ArgumentNullException(nameof(neuron));
             IntentionState = new KLEPIntentionState(Neuron.StableId);
@@ -89,6 +93,11 @@ namespace Roll4d4.Klep.Core
             GuidanceObserver = guidanceObserver;
             this.structuralObserver = structuralObserver ??
                 KLEPBaselineStructuralObserver.Instance;
+            this.goalStructuralSolutionObserver =
+                goalStructuralSolutionObserver ??
+                structuralObserver as IKLEPGoalStructuralSolutionObserver ??
+                guidanceObserver as IKLEPGoalStructuralSolutionObserver ??
+                KLEPBaselineGoalStructuralSolutionObserver.Instance;
             this.candidateStateProjectionObserver =
                 candidateStateProjectionObserver ??
                 structuralObserver as IKLEPCandidateStateProjectionObserver ??
@@ -102,6 +111,12 @@ namespace Roll4d4.Klep.Core
             ValidateStableId(
                 this.structuralObserver.Version,
                 nameof(structuralObserver));
+            ValidateStableId(
+                this.goalStructuralSolutionObserver.StableId,
+                nameof(goalStructuralSolutionObserver));
+            ValidateStableId(
+                this.goalStructuralSolutionObserver.Version,
+                nameof(goalStructuralSolutionObserver));
             ValidateStableId(
                 this.candidateStateProjectionObserver.StableId,
                 nameof(candidateStateProjectionObserver));
@@ -130,6 +145,9 @@ namespace Roll4d4.Klep.Core
         public IKLEPGuidanceObserver GuidanceObserver { get; }
         public IKLEPExecutableStructuralObserver StructuralObserver =>
             structuralObserver;
+        public IKLEPGoalStructuralSolutionObserver
+            GoalStructuralSolutionObserver =>
+                goalStructuralSolutionObserver;
         public IKLEPCandidateStateProjectionObserver
             CandidateStateProjectionObserver =>
                 candidateStateProjectionObserver;
@@ -188,6 +206,7 @@ namespace Roll4d4.Klep.Core
                         Configuration.ActionCertaintyThreshold,
                         offeredAdvice,
                         structuralObserver,
+                        goalStructuralSolutionObserver,
                         satisfactionPolicy,
                         candidateStateProjectionObserver,
                         learnedDesireSelectionPolicy);
@@ -241,7 +260,7 @@ namespace Roll4d4.Klep.Core
                         "The Agent environment visit count is exhausted.");
                 }
 
-                List<string> eligibleIds = GetEligibleSoloIds(decision);
+                List<string> eligibleIds = GetActionableSoloIds(decision);
                 List<KLEPAgentLearningUpdate> updates =
                     FinalizePendingOutcomes(state, eligibleIds);
 
@@ -915,7 +934,7 @@ namespace Roll4d4.Klep.Core
                 KLEPKeyEnvironmentSignature.FromSnapshot(decision.KeySnapshot);
             bool known = states.TryGetValue(environment, out StateRecord state);
             long visits = known ? state.VisitCount : 0;
-            List<string> eligibleIds = GetEligibleSoloIds(decision);
+            List<string> eligibleIds = GetActionableSoloIds(decision);
             float familiarity = CalculateFamiliarity(visits);
             float bestQ = known
                 ? GetBestEligibleQ(state, eligibleIds, true)
@@ -1030,18 +1049,23 @@ namespace Roll4d4.Klep.Core
             return familiarity * normalized;
         }
 
-        private static List<string> GetEligibleSoloIds(KLEPDecisionTrace decision)
+        private static List<string> GetActionableSoloIds(KLEPDecisionTrace decision)
         {
-            var eligible = new List<string>();
+            var actionable = new List<string>();
             foreach (CandidateEvaluation candidate in decision.Candidates)
             {
-                if (candidate.IsEligible)
+                // Lock eligibility remains truthful evidence even when a
+                // structural Goal has no adoptable route (or its target is
+                // already factual). Only candidates that passed every
+                // pre-scoring adoption gate have a score and may participate
+                // in Q bootstrap, confidence, or Observer guidance.
+                if (candidate.IsEligible && candidate.Score.HasValue)
                 {
-                    eligible.Add(candidate.StableId);
+                    actionable.Add(candidate.StableId);
                 }
             }
 
-            return eligible;
+            return actionable;
         }
 
         private static float GetBestEligibleQ(

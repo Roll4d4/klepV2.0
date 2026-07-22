@@ -46,7 +46,8 @@ namespace Roll4d4.Klep.Core
         AttractionEvaluation,
         DeclaredOutputValidation,
         ProjectedSatisfactionEvaluation,
-        LearnedDesireExpectationEvaluation
+        LearnedDesireExpectationEvaluation,
+        StructuralSolutionEvaluation
     }
 
     // Goal runners use this internal envelope to preserve the actual child
@@ -444,6 +445,36 @@ namespace Roll4d4.Klep.Core
         internal Exception LastFault { get; private set; }
         internal KLEPExecutableLifecycleStage? LastFaultStage { get; private set; }
         internal string LastFaultExecutableId { get; private set; }
+        internal bool IsStructuralGoal => executable is KLEPStructuralGoal;
+        internal KLEPKeyId? StructuralGoalTargetKeyId =>
+            executable is KLEPStructuralGoal structural
+                ? structural.TargetKeyId
+                : (KLEPKeyId?)null;
+        internal KLEPGoalStructuralSolution StructuralSolution =>
+            goalRuntime?.StructuralSolution;
+        internal string ActiveStructuralStepExecutableId =>
+            goalRuntime?.ActiveStructuralStepExecutableId;
+
+        internal void InstallStructuralSolution(
+            KLEPGoalStructuralSolution solution,
+            IReadOnlyList<KLEPExecutableRuntime> stepRuntimes)
+        {
+            if (goalRuntime == null || !goalRuntime.IsStructural)
+            {
+                throw new InvalidOperationException(
+                    $"Executable '{executable.StableId}' is not a structural Goal.");
+            }
+
+            goalRuntime.InstallStructuralSolution(solution, stepRuntimes);
+        }
+
+        internal void ClearStructuralSolution()
+        {
+            if (goalRuntime != null && goalRuntime.IsStructural)
+            {
+                goalRuntime.ClearStructuralSolution();
+            }
+        }
 
         internal KLEPExecutableRuntimeSnapshot CaptureSnapshot(
             bool isCurrentSolo = false)
@@ -461,7 +492,10 @@ namespace Roll4d4.Klep.Core
                     ? null
                     : fault.GetType().FullName ?? fault.GetType().Name,
                 fault == null ? null : fault.Message,
-                goalRuntime == null ? null : goalRuntime.CaptureSnapshot());
+                goalRuntime == null
+                    ? null
+                    : goalRuntime.CaptureSnapshot(
+                        isCurrentSolo && State == KLEPExecutableState.Running));
         }
 
         internal KLEPExecutionResult Initialize(
@@ -731,6 +765,39 @@ namespace Roll4d4.Klep.Core
                 waveIndex,
                 KLEPExecutableState.Cancelled,
                 reason,
+                Array.Empty<KLEPExecutableOutput>());
+            return true;
+        }
+
+        internal bool TryCompleteStructuralGoal(
+            KLEPKeySnapshot keys,
+            int waveIndex,
+            out KLEPExecutionResult result)
+        {
+            if (keys == null)
+            {
+                throw new ArgumentNullException(nameof(keys));
+            }
+
+            if (waveIndex < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(waveIndex));
+            }
+
+            if (!(executable is KLEPStructuralGoal structural) ||
+                State != KLEPExecutableState.Running ||
+                !keys.Contains(structural.TargetKeyId))
+            {
+                result = null;
+                return false;
+            }
+
+            goalRuntime.MarkStructuralTargetSatisfied();
+            result = FinishRun(
+                keys,
+                waveIndex,
+                KLEPExecutableState.Succeeded,
+                KLEPExecutableExitReason.Succeeded,
                 Array.Empty<KLEPExecutableOutput>());
             return true;
         }

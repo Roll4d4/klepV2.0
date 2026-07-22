@@ -15,7 +15,8 @@ namespace Roll4d4.Klep.Observer
     /// </summary>
     public sealed class KLEPObserver :
         IKLEPGuidanceObserver,
-        IKLEPExecutableStructuralObserver
+        IKLEPExecutableStructuralObserver,
+        IKLEPGoalStructuralSolutionObserver
     {
         private static readonly StringComparer IdComparer = StringComparer.Ordinal;
         private readonly ReadOnlyCollection<IKLEPObserverEvidenceSource> sources;
@@ -62,6 +63,11 @@ namespace Roll4d4.Klep.Observer
         public KLEPObserverTrace LastTrace { get; private set; }
         public KLEPObserverSelfModel LastSelfModel { get; private set; }
         public KLEPObserverReasoningTrace LastReasoningTrace { get; private set; }
+        public KLEPGoalStructuralSolution LastGoalStructuralSolution
+        {
+            get;
+            private set;
+        }
 
         private void ValidateLearnedExpectations(
             IKLEPLearnedExpectationsView learnedExpectations)
@@ -279,6 +285,40 @@ namespace Roll4d4.Klep.Observer
         {
             return KLEPExecutableStructuralMapper.Build(
                 snapshot ?? throw new ArgumentNullException(nameof(snapshot)));
+        }
+
+        /// <summary>
+        /// Answers one bounded map-only route question. The returned evidence
+        /// is bound to this Observer identity and version; it is not installed,
+        /// selected, or executed here.
+        /// </summary>
+        public KLEPGoalStructuralSolution ObserveGoalStructuralSolution(
+            KLEPExecutableStructuralMap structuralMap,
+            KLEPGoalStructuralSolutionRequest request)
+        {
+            if (isObserving || isReasoning)
+            {
+                throw new InvalidOperationException(
+                    $"Observer '{StableId}' cannot solve a structural Goal " +
+                    "recursively or during another Observer operation.");
+            }
+
+            LastGoalStructuralSolution = null;
+            isReasoning = true;
+            try
+            {
+                LastGoalStructuralSolution = KLEPGoalStructuralSolver.Solve(
+                    structuralMap ?? throw new ArgumentNullException(
+                        nameof(structuralMap)),
+                    request ?? throw new ArgumentNullException(nameof(request)),
+                    StableId,
+                    Version);
+                return LastGoalStructuralSolution;
+            }
+            finally
+            {
+                isReasoning = false;
+            }
         }
 
         /// <summary>

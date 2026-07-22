@@ -24,10 +24,11 @@ KLEP uses cognition-inspired names for optional, bounded mechanisms:
 | Desire | Ordered project-authored preferred conditions evaluated as satisfaction, deficit, pressure, and raw attributed transition effects | Universal value, automatic behavior selection, or learned preference |
 | Learned Expectations | Independent empirical exact-Key and ActionOwned Desire-effect estimates with support, variance, prediction error, and confidence | A complete world model, route probability, planning, or terminal value |
 | Intention | Agent-owned post-decision evidence for actual root Goal adoption, suspension, resumption, completion, and abandonment | Goal invention, commitment utility, planning, or execution authority |
+| Imagination | Strict compilation of closed Strong Manifests against project-admitted capability descriptors, plus non-runnable Weak Conjecture evidence | Generated code, autonomous capability invention, a model adapter, or authority over Locks and execution |
 | Ethics | Project-authored, ordered contextual rules producing traced influence on two designer-named axes | A universal moral system, moral truth, or ethical reasoning |
 | Emotion | A bounded two-axis state with velocity, accumulated influence, friction, and immutable snapshots | Felt experience, affective science validity, or human emotion |
 | Memory | Deterministic episode association, repetition, heat, retention, detail fading, and pure recall scoring | Autobiographical consciousness, conjecture, or current world truth |
-| Observer | Read-only structural mapping plus query and project seams for complete candidate-state projection and explained influence on already-eligible roots | A built-in planner, owner of learned state, authoritative world model, or authority to bypass Locks |
+| Observer | Read-only structural mapping plus bounded Goal-solution, projection, and explained-influence seams over already-registered capabilities | A general world-state planner, owner of learned state, authoritative world model, or authority to bypass Locks |
 | Agent learning | A tabular semi-Markov temporal-difference update over a symbolic state signature and root action ID | General learning, transfer learning, model learning, or planning |
 
 The repository sometimes groups these modules under “higher cognition.” Here
@@ -37,33 +38,44 @@ are stated in the [constitution](KLEP_CONSTITUTION.md) and subsystem contracts.
 
 ## Current internal evidence
 
-The runtime targets `netstandard2.1` and has no third-party runtime dependency.
-The repository includes 17 dependency-free console suites. CI builds the
-solution and executes every suite through [`scripts/Test-All.ps1`](../scripts/Test-All.ps1).
+The main runtime targets `netstandard2.1`. The split Imagination project targets
+.NET 8 for the framework-provided `System.Text.Json`; both projects have zero
+`PackageReference` entries, no Unity dependency, and no third-party runtime
+dependency. The repository includes 25 dependency-free console suites. CI
+builds the solution and executes every suite through
+[`scripts/Test-All.ps1`](../scripts/Test-All.ps1).
 
-The current total is **4,676 assertion executions**, not 4,676 distinct tests,
+The current total is **4,988 assertion executions**, not 4,988 distinct tests,
 independently specified requirements, or externally reviewed cases:
 
 | Executable suite | Assertion executions |
 |---|---:|
-| `KlepAgentSmoke` | 169 |
+| `KlepAgentSmoke` | 197 |
+| `KlepAmmoNodeSightingSmoke` | 16 |
 | `KlepBehaviorSmoke` | 52 |
+| `KlepCivilianSafetyDesireSmoke` | 36 |
+| `KlepCivilianShotEthicsSmoke` | 20 |
 | `KlepCognitionSmoke` | 46 |
+| `KlepCoverRouteLearningSmoke` | 59 |
 | `KlepDesireSmoke` | 57 |
 | `KlepEmotionSmoke` | 43 |
 | `KlepEthicsSmoke` | 34 |
 | `KlepExecutableSmoke` | 394 |
 | `KlepHumanSightingSmoke` | 25 |
+| `KlepImaginationSmoke` | 24 |
 | `KlepIntentionSmoke` | 54 |
 | `KlepKeySmoke` | 848 |
 | `KlepLearnedExpectationsSmoke` | 22 |
 | `KlepLockSmoke` | 113 |
 | `KlepMemorySmoke` | 93 |
-| `KlepObserverSmoke` | 134 |
+| `KlepObserverSmoke` | 145 |
 | `KlepPlayerInputSmoke` | 245 |
+| `KlepWeaponSmoke` | 42 |
+| `KlepZombieCognitionSmoke` | 40 |
+| `KlepZombieDesireSmoke` | 36 |
 | `KlepZombieGoalSmoke` | 2,206 |
 | `KlepZombieSmoke` | 141 |
-| **Total** | **4,676** |
+| **Total** | **4,988** |
 
 Some assertions execute repeatedly inside scenario loops. The suites were
 written with the implementation and its project-owned contracts. They are
@@ -110,6 +122,13 @@ regression suites support these bounded claims:
   state as specified by the contract;
 - accepted catalog removals settle in stable order despite teardown faults, and
   recovery republishes structure that matches the surviving runtime catalog;
+- one explicitly targeted structural Goal may receive and cache a deterministic
+  route through guaranteed outputs of exact registered root Actions, while the
+  Agent leases only those Actions and preserves every runtime Lock and output
+  boundary;
+- Strong Imagination Manifests fail closed against exact trusted capability
+  versions and bounded typed arguments, while Weak Conjectures remain
+  non-runnable and materialization creates fresh runtime instances;
 - Desire, independent learned-effect evidence, and Intention retain separate,
   inspectable authority while the Agent remains the only selector;
 - decisions and material higher-cognition influence retain immutable,
@@ -128,7 +147,8 @@ The public project does not currently establish:
 
 - human-like or “higher” cognition as a scientific accomplishment;
 - a learned world model, abstraction formation, counterfactual simulation,
-  general planning, or transfer learning;
+  general cost-aware world-state planning, autonomous capability invention,
+  model-generated executable semantics, or transfer learning;
 - superiority to behavior trees, GOAP, utility AI, state machines, or rule
   engines;
 - performance, memory-use, or scaling characteristics under representative
@@ -146,11 +166,12 @@ project author or independently.
 
 ## Preview and adoption boundary
 
-`2.0.0-preview.3` is auditable preview source, not a promise of a stable
+`2.0.0-preview.4` is auditable preview source, not a promise of a stable
 production dependency. The standalone project deliberately sets
 `IsPackable=false`; this repository is not currently a NuGet distribution. The
-runtime library targets `netstandard2.1`, while reproducing the current contract
-suites requires the .NET 10 SDK pinned in `global.json`.
+main runtime targets `netstandard2.1`; the separate Imagination project targets
+.NET 8. Reproducing the complete contract suite requires the .NET 8 targeting
+pack and the .NET 10 SDK pinned in `global.json`.
 
 Prospective adopters should first read [WHEN_TO_USE_KLEP.md](WHEN_TO_USE_KLEP.md),
 prototype one real behavior, run the suites, inspect the applicable accepted

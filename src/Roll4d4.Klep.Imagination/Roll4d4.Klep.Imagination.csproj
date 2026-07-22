@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Roll4d4.Klep.Imagination</AssemblyName>
+    <RootNamespace>Roll4d4.Klep.Imagination</RootNamespace>
+    <Version>2.0.0-preview.4</Version>
+    <Description>Strict, bounded KLEP Imagination proposal compilation and materialization.</Description>
+    <Authors>Roll4d4</Authors>
+    <RepositoryUrl>https://github.com/Roll4d4/klepV2.0</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Roll4d4.Klep/Roll4d4.Klep.csproj" />
+  </ItemGroup>
+</Project>

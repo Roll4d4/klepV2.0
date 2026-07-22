@@ -16,12 +16,13 @@ These are nearest conventional analogues, not exact equivalences:
 | Lock | Predicate or action precondition | A pure condition over one frozen Key snapshot; Locks may contribute authored attractiveness but cannot mutate state |
 | Executable | Action, sensor, derivation rule, or behavior node | A registered behavior with Solo/Tandem mode, declared outputs, explicit lifecycle, teardown, and trace evidence |
 | Neuron | Blackboard plus behavior catalog | Passively owns Key stores and the registered root Executable set; it does not schedule or advance behavior |
-| Goal | Composite behavior or scored utility action | Exclusively owns ordered child layers and may run in Solo or Tandem; it is not a search planner |
+| Goal | Composite behavior or scored utility action | Owns authored child layers or one cached structural solution and may run in Solo or Tandem; it does not search during execution |
 | Agent | Deterministic scheduler plus optional evidence consumers | Exclusively owns the Tick path, all Executable runtime state, arbitration, Intention state, recursive map, and decision history |
-| Observer | Structural and advisory policy layer | Maps the catalog, queries read-only learned evidence, and may provide complete candidate projections or explained influence only for roots whose Locks already passed |
+| Observer | Structural and advisory policy layer | Maps the catalog, answers bounded structural-Goal queries, queries read-only learned evidence, and may provide complete candidate projections or explained influence only for roots whose Locks already passed |
 | Desire | Project-authored terminal-value evaluator | Evaluates satisfaction, deficit, pressure, and raw transition effects; it neither learns nor selects |
 | Learned Expectations | Empirical critic | Retains observed effects and confidence independently of terminal value and execution |
 | Intention | Commitment ledger | Records the root Goal the Agent actually adopted and its later runtime disposition; it is not a planner |
+| Imagination | Checked proposal boundary | Compiles only closed Strong Manifests against project-admitted capability descriptors; Weak Conjectures remain non-runnable |
 
 If a team cannot map this vocabulary onto concepts it already understands, it
 should not adopt KLEP merely because the names sound cognitive.
@@ -47,6 +48,13 @@ many other systems:
 - **Inspectable commitment.** Intention records actual Goal adoption,
   suspension, resumption, completion, and abandonment without silently adding
   stickiness or planning authority.
+- **Bounded structural self-solving.** One explicitly targeted empty Goal may
+  cache an Observer-built chain of exact registered root Actions whose
+  guaranteed outputs connect to its target. Catalog or shape drift invalidates
+  the chain; runtime Locks remain authoritative.
+- **Constrained proposal admission.** Imagination JSON may select only an exact
+  trusted capability version and bounded typed arguments. It cannot author
+  code, Locks, outputs, scores, lifecycle, or success rules.
 - **Explicit lifecycle and teardown.** Enter, Running, terminal state, Exit,
   Cleanup, cancellation, and faults are named and traced.
 - **Transactional output validation.** A complete output batch is preflighted;
@@ -92,7 +100,7 @@ published performance or production claims.
 | Need | Usually start with | Why KLEP is not the default answer today |
 |---|---|---|
 | Mature visual authoring, engine marketplace support, and a large user community | Established behavior tree package | The standalone preview has no visual graph authoring and limited public adoption evidence |
-| Dynamic multi-step plan search over desired world states | GOAP or another planner | KLEP currently has no general planner or learned world model; Goals are owned composites, not plan search |
+| Dynamic cost-aware plan search over valued world states and resources | GOAP or another planner | KLEP's structural solver follows guaranteed Key outputs for one explicit target; it has no general cost model, value-aware world-state search, or learned world model |
 | Straightforward ranking of independent actions | Established utility-AI package | KLEP adds snapshot, wave, lifecycle, and trace ceremony that may be unnecessary |
 | Production inference over a large fact/rule base | Established rule engine | KLEP's primary abstraction is behavior arbitration and lifecycle, not a general inference agenda |
 | A small, explicit set of modes and transitions | Finite or hierarchical state machine | A state machine is often easier to author and review for a genuinely small state space |
@@ -130,10 +138,10 @@ Before adopting, budget for:
   rather than expecting a NuGet package; and
 - absorbing preview API change until a stability policy exists.
 
-The regression suites currently require the pinned .NET 10 SDK even though the
-runtime library targets `netstandard2.1`. That affects contributors reproducing
-the repository checks; it does not require a consuming application to target
-.NET 10.
+The regression suites currently require the .NET 8 targeting pack and the
+pinned .NET 10 SDK. The main runtime still targets `netstandard2.1`; the split
+Imagination project targets .NET 8 for framework `System.Text.Json`. A consumer
+that references only the main runtime does not need to target .NET 8 or 10.
 
 ## A low-risk evaluation
 

@@ -112,6 +112,8 @@ namespace Roll4d4.Klep.Core
             float certaintyThreshold,
             KLEPGuidanceAdvice guidanceAdvice,
             IKLEPExecutableStructuralObserver structuralObserver,
+            IKLEPGoalStructuralSolutionObserver
+                goalStructuralSolutionObserver,
             KLEPProjectedSatisfactionPolicy satisfactionPolicy,
             IKLEPCandidateStateProjectionObserver
                 candidateStateProjectionObserver,
@@ -255,6 +257,8 @@ namespace Roll4d4.Klep.Core
                     workingSnapshot,
                     certaintyThreshold,
                     guidanceAdvice,
+                    goalStructuralSolutionObserver ??
+                        KLEPBaselineGoalStructuralSolutionObserver.Instance,
                     satisfactionPolicy,
                     candidateStateProjectionObserver,
                     learnedDesireSelectionPolicy,
@@ -911,6 +915,8 @@ namespace Roll4d4.Klep.Core
             KLEPKeySnapshot snapshot,
             float certaintyThreshold,
             KLEPGuidanceAdvice guidanceAdvice,
+            IKLEPGoalStructuralSolutionObserver
+                goalStructuralSolutionObserver,
             KLEPProjectedSatisfactionPolicy satisfactionPolicy,
             IKLEPCandidateStateProjectionObserver
                 candidateStateProjectionObserver,
@@ -925,8 +931,75 @@ namespace Roll4d4.Klep.Core
         {
             selectedExecutableId = null;
             guidanceApplication = null;
+            KLEPExecutableRuntime currentAtBoundary = null;
+            if (currentSoloExecutableId != null)
+            {
+                for (int index = 0; index < ordered.Count; index++)
+                {
+                    KLEPExecutableRuntime candidate = ordered[index];
+                    if (IdComparer.Equals(
+                            candidate.Executable.StableId,
+                            currentSoloExecutableId) &&
+                        candidate.State == KLEPExecutableState.Running)
+                    {
+                        currentAtBoundary = candidate;
+                        break;
+                    }
+                }
+            }
+
+            // Factual target evidence concludes the already-running outer Goal
+            // before another Solo can be selected. The delegated root remains
+            // nested evidence and is cancelled only if it was still Running.
+            if (currentAtBoundary != null &&
+                currentAtBoundary.IsStructuralGoal &&
+                currentAtBoundary.StructuralGoalTargetKeyId.HasValue &&
+                snapshot.Contains(
+                    currentAtBoundary.StructuralGoalTargetKeyId.Value))
+            {
+                faultExecutableId = currentAtBoundary.Executable.StableId;
+                faultStage = KLEPExecutableLifecycleStage.Exit;
+                try
+                {
+                    if (!currentAtBoundary.TryCompleteStructuralGoal(
+                            snapshot,
+                            snapshot.WaveIndex,
+                            out KLEPExecutionResult completed))
+                    {
+                        throw new InvalidOperationException(
+                            $"Structural Goal '{currentAtBoundary.Executable.StableId}' " +
+                            "could not complete from its factual target boundary.");
+                    }
+
+                    allSteps.Add(new KLEPExecutableStepTrace(
+                        KLEPExecutableStepKind.Solo,
+                        completed));
+                    selectedExecutableId =
+                        currentAtBoundary.Executable.StableId;
+                    currentSoloExecutableId = null;
+                    return true;
+                }
+                catch
+                {
+                    AddFaultResult(
+                        currentAtBoundary,
+                        allSteps,
+                        KLEPExecutableStepKind.Solo);
+                    faultStage = currentAtBoundary.LastFaultStage ?? faultStage;
+                    faultExecutableId =
+                        currentAtBoundary.LastFaultExecutableId ??
+                        faultExecutableId;
+                    currentSoloExecutableId = null;
+                    throw;
+                }
+            }
+
+            string leasedRootId = currentAtBoundary == null
+                ? null
+                : currentAtBoundary.ActiveStructuralStepExecutableId;
             var solos = new List<KLEPExecutableRuntime>();
             var candidateById = new Dictionary<string, CandidateEvaluation>(IdComparer);
+            var structurallyUnadoptable = new HashSet<string>(IdComparer);
             foreach (KLEPExecutableRuntime runtime in ordered)
             {
                 if (runtime.Executable.ExecutionMode != KLEPExecutionMode.Solo)
@@ -934,11 +1007,51 @@ namespace Roll4d4.Klep.Core
                     continue;
                 }
 
+                if (!string.IsNullOrEmpty(leasedRootId) &&
+                    IdComparer.Equals(
+                        runtime.Executable.StableId, leasedRootId))
+                {
+                    // This exact root is being advanced only through the outer
+                    // Goal lease. Omitting it prevents a second selection and a
+                    // duplicate top-level learning identity.
+                    continue;
+                }
+
                 solos.Add(runtime);
                 KLEPEligibility eligibility =
                     runtime.Executable.EvaluateEligibility(snapshot);
                 KLEPExecutableScoreEvaluation score = null;
-                if (eligibility.IsEligible)
+                bool structurallyAdoptable = true;
+                if (runtime.IsStructuralGoal)
+                {
+                    KLEPKeyId target =
+                        runtime.StructuralGoalTargetKeyId.Value;
+                    if (snapshot.Contains(target))
+                    {
+                        structurallyAdoptable = false;
+                    }
+                    else if (eligibility.IsEligible)
+                    {
+                        faultExecutableId = runtime.Executable.StableId;
+                        faultStage = KLEPExecutableLifecycleStage
+                            .StructuralSolutionEvaluation;
+                        structurallyAdoptable = EnsureStructuralSolution(
+                            runtime,
+                            snapshot,
+                            goalStructuralSolutionObserver,
+                            allSteps,
+                            ref faultExecutableId,
+                            ref faultStage);
+                    }
+
+                    if (!structurallyAdoptable)
+                    {
+                        structurallyUnadoptable.Add(
+                            runtime.Executable.StableId);
+                    }
+                }
+
+                if (eligibility.IsEligible && structurallyAdoptable)
                 {
                     try
                     {
@@ -990,7 +1103,8 @@ namespace Roll4d4.Klep.Core
                         learnedDesireSelectionPolicy,
                         solos,
                         candidates,
-                        candidateById);
+                        candidateById,
+                        structurallyUnadoptable);
                 }
                 catch
                 {
@@ -1191,6 +1305,259 @@ namespace Roll4d4.Klep.Core
             return true;
         }
 
+        private bool EnsureStructuralSolution(
+            KLEPExecutableRuntime goalRuntime,
+            KLEPKeySnapshot snapshot,
+            IKLEPGoalStructuralSolutionObserver solutionObserver,
+            List<KLEPExecutableStepTrace> allSteps,
+            ref string faultExecutableId,
+            ref KLEPExecutableLifecycleStage faultStage)
+        {
+            if (goalRuntime == null || !goalRuntime.IsStructuralGoal)
+            {
+                throw new ArgumentException(
+                    "Structural solution preparation requires a structural Goal " +
+                    "runtime.",
+                    nameof(goalRuntime));
+            }
+
+            if (solutionObserver == null)
+            {
+                throw new ArgumentNullException(nameof(solutionObserver));
+            }
+
+            if (acceptedStructuralMap == null ||
+                !acceptedStructuralMap.IsValid ||
+                !acceptedStructuralMap.TryGetExecutable(
+                    goalRuntime.Executable.StableId,
+                    out KLEPExecutableStructuralNode goalNode) ||
+                !goalNode.IsStructuralGoal ||
+                !goalNode.IsRoot)
+            {
+                throw new InvalidOperationException(
+                    $"Structural Goal '{goalRuntime.Executable.StableId}' is " +
+                    "missing from the valid accepted structural map.");
+            }
+
+            string providerStableId = RequireObserverIdentity(
+                solutionObserver.StableId,
+                "Goal structural-solution provider stable ID");
+            string providerVersion = RequireObserverIdentity(
+                solutionObserver.Version,
+                "Goal structural-solution provider version");
+            var request = new KLEPGoalStructuralSolutionRequest(
+                goalRuntime.Executable.StableId,
+                goalNode.RootTenureId,
+                goalRuntime.StructuralGoalTargetKeyId.Value);
+
+            KLEPGoalStructuralSolution cached =
+                goalRuntime.StructuralSolution;
+            if (cached != null &&
+                StructuralSolutionBindingMatches(
+                    cached,
+                    request,
+                    providerStableId,
+                    providerVersion,
+                    out List<KLEPExecutableRuntime> ignoredBindings))
+            {
+                if (!IdComparer.Equals(
+                        providerStableId, solutionObserver.StableId) ||
+                    !IdComparer.Equals(
+                        providerVersion, solutionObserver.Version))
+                {
+                    throw new InvalidOperationException(
+                        $"Goal structural-solution provider '{providerStableId}' " +
+                        "changed identity while cached evidence was validated.");
+                }
+
+                return cached.HasExecutableSolution;
+            }
+
+            // A stale route cannot remain live. Cancelling the outer Goal also
+            // unwinds its exact active lease before the evidence is replaced.
+            bool cancelledThisTick = false;
+            if (goalRuntime.State == KLEPExecutableState.Running)
+            {
+                CancelSolo(
+                    goalRuntime,
+                    snapshot,
+                    KLEPExecutableExitReason.Interrupted,
+                    allSteps,
+                    ref faultExecutableId,
+                    ref faultStage);
+                if (IdComparer.Equals(
+                        currentSoloExecutableId,
+                        goalRuntime.Executable.StableId))
+                {
+                    currentSoloExecutableId = null;
+                }
+
+                cancelledThisTick = true;
+            }
+
+            faultExecutableId = goalRuntime.Executable.StableId;
+            faultStage = KLEPExecutableLifecycleStage
+                .StructuralSolutionEvaluation;
+            goalRuntime.ClearStructuralSolution();
+            KLEPGoalStructuralSolution observed =
+                solutionObserver.ObserveGoalStructuralSolution(
+                    acceptedStructuralMap,
+                    request);
+            if (!IdComparer.Equals(
+                    providerStableId, solutionObserver.StableId) ||
+                !IdComparer.Equals(
+                    providerVersion, solutionObserver.Version))
+            {
+                throw new InvalidOperationException(
+                    $"Goal structural-solution provider '{providerStableId}' " +
+                    "changed identity during its query.");
+            }
+
+            ValidateStructuralSolution(
+                observed,
+                request,
+                providerStableId,
+                providerVersion,
+                out List<KLEPExecutableRuntime> stepRuntimes);
+            goalRuntime.InstallStructuralSolution(observed, stepRuntimes);
+            return observed.HasExecutableSolution && !cancelledThisTick;
+        }
+
+        private void ValidateStructuralSolution(
+            KLEPGoalStructuralSolution solution,
+            KLEPGoalStructuralSolutionRequest request,
+            string providerStableId,
+            string providerVersion,
+            out List<KLEPExecutableRuntime> stepRuntimes)
+        {
+            if (solution == null)
+            {
+                throw new InvalidOperationException(
+                    "A Goal structural-solution provider returned no evidence.");
+            }
+
+            if (!Enum.IsDefined(
+                    typeof(KLEPGoalStructuralSolutionDisposition),
+                    solution.Disposition) ||
+                !StructuralSolutionBindingMatches(
+                    solution,
+                    request,
+                    providerStableId,
+                    providerVersion,
+                    out stepRuntimes))
+            {
+                throw new InvalidOperationException(
+                    "A Goal structural-solution provider returned stale, " +
+                    "malformed, or differently bound evidence.");
+            }
+        }
+
+        private bool StructuralSolutionBindingMatches(
+            KLEPGoalStructuralSolution solution,
+            KLEPGoalStructuralSolutionRequest request,
+            string providerStableId,
+            string providerVersion,
+            out List<KLEPExecutableRuntime> stepRuntimes)
+        {
+            stepRuntimes = new List<KLEPExecutableRuntime>();
+            if (solution == null || solution.Provenance == null ||
+                !IdComparer.Equals(
+                    providerStableId,
+                    solution.Provenance.ProviderStableId) ||
+                !IdComparer.Equals(
+                    providerVersion,
+                    solution.Provenance.ProviderVersion) ||
+                !IdComparer.Equals(
+                    acceptedStructuralMap.Snapshot.ProposedCatalogRevision,
+                    solution.Provenance.CatalogRevision) ||
+                !acceptedStructuralMap.Fingerprint.Equals(
+                    solution.Provenance.CatalogFingerprint) ||
+                !IdComparer.Equals(
+                    request.RequestingGoalStableId,
+                    solution.Provenance.RequestingGoalStableId) ||
+                !IdComparer.Equals(
+                    request.RequestingGoalTenureId,
+                    solution.Provenance.RequestingGoalTenureId) ||
+                request.TargetKeyId != solution.Provenance.TargetKeyId)
+            {
+                return false;
+            }
+
+            if (!solution.HasExecutableSolution)
+            {
+                return solution.Steps.Count == 0;
+            }
+
+            if (solution.Steps.Count == 0 ||
+                solution.Cost == null ||
+                solution.Cost.DistinctStepCount != solution.Steps.Count ||
+                string.IsNullOrWhiteSpace(solution.CanonicalRoute))
+            {
+                return false;
+            }
+
+            var seenSteps = new HashSet<string>(IdComparer);
+            bool routeNamesTarget = false;
+            for (int index = 0; index < solution.Steps.Count; index++)
+            {
+                KLEPGoalStructuralSolutionStep step = solution.Steps[index];
+                if (step == null || step.StepIndex != index ||
+                    !seenSteps.Add(step.ExecutableStableId) ||
+                    !acceptedStructuralMap.TryGetExecutable(
+                        step.ExecutableStableId,
+                        out KLEPExecutableStructuralNode node) ||
+                    !IdComparer.Equals(step.Path, node.Path) ||
+                    !node.IsRoot ||
+                    node.IsGoalRecipe ||
+                    node.ExecutionMode != KLEPExecutionMode.Solo ||
+                    !IdComparer.Equals(node.RootTenureId, step.RootTenureId) ||
+                    !registrationTenureIds.TryGetValue(
+                        step.ExecutableStableId,
+                        out string activeTenure) ||
+                    !IdComparer.Equals(activeTenure, step.RootTenureId) ||
+                    !runtimes.TryGetValue(
+                        step.ExecutableStableId,
+                        out KLEPExecutableRuntime runtime) ||
+                    runtime.Executable is KLEPGoal)
+                {
+                    stepRuntimes.Clear();
+                    return false;
+                }
+
+                for (int outputIndex = 0;
+                     outputIndex < step.RequiredOutputKeyIds.Count;
+                     outputIndex++)
+                {
+                    KLEPKeyId requiredOutput =
+                        step.RequiredOutputKeyIds[outputIndex];
+                    bool declared = false;
+                    for (int declaredIndex = 0;
+                         declaredIndex < node.GuaranteedDeclaredOutputs.Count;
+                         declaredIndex++)
+                    {
+                        if (node.GuaranteedDeclaredOutputs[declaredIndex].KeyId ==
+                            requiredOutput)
+                        {
+                            declared = true;
+                            break;
+                        }
+                    }
+
+                    if (!declared)
+                    {
+                        stepRuntimes.Clear();
+                        return false;
+                    }
+
+                    routeNamesTarget |= requiredOutput == request.TargetKeyId;
+                }
+
+                stepRuntimes.Add(runtime);
+            }
+
+            return routeNamesTarget;
+        }
+
         private KLEPExecutableScoreEvaluation ApplyProjectedSatisfaction(
             KLEPExecutableBase executable,
             KLEPKeySnapshot currentSnapshot,
@@ -1263,7 +1630,8 @@ namespace Roll4d4.Klep.Core
             IKLEPLearnedDesireSelectionPolicy policy,
             IReadOnlyList<KLEPExecutableRuntime> solos,
             List<CandidateEvaluation> candidates,
-            Dictionary<string, CandidateEvaluation> candidateById)
+            Dictionary<string, CandidateEvaluation> candidateById,
+            ISet<string> structurallyUnadoptable)
         {
             var requested = new List<KLEPLearnedDesireSelectionCandidate>();
             for (int index = 0; index < solos.Count; index++)
@@ -1271,7 +1639,9 @@ namespace Roll4d4.Klep.Core
                 KLEPExecutableRuntime runtime = solos[index];
                 CandidateEvaluation candidate =
                     candidateById[runtime.Executable.StableId];
-                if (!candidate.IsEligible)
+                if (!candidate.IsEligible ||
+                    (structurallyUnadoptable != null &&
+                     structurallyUnadoptable.Contains(candidate.StableId)))
                 {
                     continue;
                 }

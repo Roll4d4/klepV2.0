@@ -29,6 +29,14 @@ internal static class Program
         VerifyStructuralMapCapturesRecursiveCatalog();
         VerifyStructuralMapFingerprintAndProjectionAreDeterministic();
         VerifyStructuralMapReturnsValidationDiagnostics();
+        VerifyStructuralGoalAdoptsExactRootAndCompletesFromFactBoundary();
+        VerifyStructuralGoalExecutesCanonicalAnyRouteInDependencyOrder();
+        VerifyStructuralGoalRetainsRunningStep();
+        VerifyStructuralGoalRetriesFailedAndBlockedSteps();
+        VerifyStructuralGoalWithPresentTargetRemainsUnadopted();
+        VerifyStructuralGoalWithoutSolutionStaysOutOfActionableSet();
+        VerifyLosingStructuralGoalDoesNotClaimActiveLease();
+        VerifyStructuralGoalRebindsAfterProducerTenureChanges();
         VerifyAgentStructuralMapLifecycleAndRejectedProposal();
         VerifyStructuralObserverFaultsAreFrozenAndRethrown();
         VerifyAgentAdvancesNeuronExactlyOnce();
@@ -1692,6 +1700,583 @@ internal static class Program
             "Structural mapper terminates and diagnoses a recursively corrupted Goal graph");
     }
 
+    private static void
+        VerifyStructuralGoalAdoptsExactRootAndCompletesFromFactBoundary()
+    {
+        const string goalId = "agent.structural.adoption.goal";
+        const string producerId = "agent.structural.adoption.producer";
+        KLEPKeyDefinition target = Key("agent.structural.adoption.target");
+        var producer = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.adoption.neuron");
+        neuron.RegisterExecutable(producer);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace advanced = agent.Tick();
+        KLEPExecutableRuntimeSnapshot runningGoal =
+            Runtime(advanced, goalId);
+        KLEPGoalStructuralRuntimeSnapshot structural =
+            runningGoal.Goal.Structural;
+        KLEPExecutableStepTrace outerStep =
+            OnlySoloStep(advanced.Decision);
+
+        Expect(advanced.Decision.SelectedExecutableId == goalId &&
+               advanced.Decision.CurrentSoloExecutableId == goalId &&
+               outerStep.ExecutableStableId == goalId &&
+               outerStep.State == KLEPExecutableState.Running &&
+               producer.TickCount == 1,
+            "A selected structural Goal advances the exact registered producer while remaining the one top-level Solo");
+        Expect(structural != null &&
+               structural.HasSolution &&
+               structural.RouteComplete &&
+               !structural.TargetSatisfied &&
+               structural.LastStepResults.Count == 1 &&
+               structural.LastStepResults[0].ExecutableStableId == producerId &&
+               structural.LastStepResults[0].State ==
+                   KLEPExecutableState.Succeeded,
+            "Structural Goal evidence records the delegated root result without promoting that root to a second Solo trace");
+        Expect(outerStep.Outputs.Count == 1 &&
+               outerStep.Outputs[0].KeyId == target.Id &&
+               outerStep.Outputs[0].SourceExecutableId == producerId &&
+               structural.LastStepResults[0].Outputs.Count == 1 &&
+               structural.LastStepResults[0].Outputs[0]
+                   .SourceExecutableId == producerId &&
+               !advanced.Decision.KeySnapshot.Contains(target.Id),
+            "A delegated output is forwarded once with its producer identity and remains staged until the next boundary");
+
+        KLEPAgentTickTrace completed = agent.Tick();
+        KLEPExecutableRuntimeSnapshot completedGoal =
+            Runtime(completed, goalId);
+        KLEPExecutableStepTrace completionStep =
+            OnlySoloStep(completed.Decision);
+        int targetFacts = 0;
+        string factualSource = null;
+        for (int index = 0;
+             index < completed.Decision.KeySnapshot.Facts.Count;
+             index++)
+        {
+            KLEPKeyFact fact = completed.Decision.KeySnapshot.Facts[index];
+            if (fact.KeyId == target.Id)
+            {
+                targetFacts++;
+                factualSource = fact.SourceId;
+            }
+        }
+
+        Expect(completed.Decision.SelectedExecutableId == goalId &&
+               completed.Decision.CurrentSoloExecutableId == null &&
+               completionStep.ExecutableStableId == goalId &&
+               completionStep.State == KLEPExecutableState.Succeeded &&
+               completedGoal.Goal.Structural.TargetSatisfied &&
+               producer.TickCount == 1,
+            "The outer structural Goal completes only at the following factual target boundary without re-running its producer");
+        Expect(targetFacts == 1 && factualSource == producerId,
+            "The committed target has exactly one occurrence and retains the delegated producer as its source");
+        bool learnedDelegatedRoot = false;
+        foreach (KLEPAgentExperience experience in
+                 agent.GetExperienceSnapshot())
+        {
+            learnedDelegatedRoot |= StringComparer.Ordinal.Equals(
+                experience.ExecutableStableId, producerId);
+        }
+
+        Expect(!learnedDelegatedRoot,
+            "A leased structural step never becomes a second Agent navigation-learning identity");
+    }
+
+    private static void VerifyStructuralGoalExecutesCanonicalAnyRouteInDependencyOrder()
+    {
+        const string goalId = "agent.structural.multistep.goal";
+        const string canonicalProducerId =
+            "agent.structural.multistep.prerequisite.a";
+        const string alternateProducerId =
+            "agent.structural.multistep.prerequisite.b";
+        const string finishId = "agent.structural.multistep.finish";
+        KLEPKeyDefinition canonicalPrerequisite =
+            Key("agent.structural.multistep.key.a");
+        KLEPKeyDefinition alternatePrerequisite =
+            Key("agent.structural.multistep.key.b");
+        KLEPKeyDefinition target =
+            Key("agent.structural.multistep.target");
+        var canonicalProducer = new SequenceProbeExecutable(
+            Definition(
+                canonicalProducerId,
+                0f,
+                declaredOutputs: new[] { canonicalPrerequisite }),
+            canonicalPrerequisite,
+            KLEPExecutableTickStatus.Succeeded);
+        var alternateProducer = new SequenceProbeExecutable(
+            Definition(
+                alternateProducerId,
+                0f,
+                declaredOutputs: new[] { alternatePrerequisite }),
+            alternatePrerequisite,
+            KLEPExecutableTickStatus.Succeeded);
+        var finish = new SequenceProbeExecutable(
+            new KLEPExecutableDefinition(
+                finishId,
+                finishId,
+                KLEPExecutableKind.Action,
+                executionLocks: new[]
+                {
+                    new KLEPLock(
+                        "agent.structural.multistep.any-lock",
+                        "Either prerequisite is present",
+                        new KLEPAny(
+                            new KLEPKeyPresent(
+                                canonicalPrerequisite.Id.Value),
+                            new KLEPKeyPresent(
+                                alternatePrerequisite.Id.Value)))
+                },
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.multistep.neuron");
+        // Deliberately register the lexically later alternative first. The
+        // structural solution must remain canonical rather than registration-
+        // order dependent.
+        neuron.RegisterExecutable(alternateProducer);
+        neuron.RegisterExecutable(finish);
+        neuron.RegisterExecutable(canonicalProducer);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace prerequisiteTick = agent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot prerequisiteState =
+            Runtime(prerequisiteTick, goalId).Goal.Structural;
+        Expect(prerequisiteTick.Decision.SelectedExecutableId == goalId &&
+               OnlySoloStep(prerequisiteTick.Decision).ExecutableStableId ==
+                   goalId &&
+               prerequisiteState.Solution.Steps.Count == 2 &&
+               prerequisiteState.Solution.Steps[0].ExecutableStableId ==
+                   canonicalProducerId &&
+               prerequisiteState.Solution.Steps[1].ExecutableStableId ==
+                   finishId &&
+               prerequisiteState.CurrentStepIndex == 1,
+            "A structural Goal adopts the canonical Any branch and advances its prerequisite before the target producer");
+        Expect(canonicalProducer.TickCount == 1 &&
+               alternateProducer.TickCount == 0 &&
+               finish.TickCount == 0 &&
+               !prerequisiteTick.Decision.KeySnapshot.Contains(
+                   canonicalPrerequisite.Id),
+            "Only the chosen prerequisite root is leased and its output remains staged at the first boundary");
+
+        KLEPAgentTickTrace finishTick = agent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot finishState =
+            Runtime(finishTick, goalId).Goal.Structural;
+        Expect(finishTick.Decision.SelectedExecutableId == goalId &&
+               OnlySoloStep(finishTick.Decision).ExecutableStableId == goalId &&
+               finishTick.Decision.KeySnapshot.Contains(
+                   canonicalPrerequisite.Id) &&
+               finishState.RouteComplete &&
+               !finishState.TargetSatisfied &&
+               finish.TickCount == 1,
+            "The Agent leases the target producer only after the selected prerequisite becomes factual");
+
+        KLEPAgentTickTrace completed = agent.Tick();
+        Expect(OnlySoloStep(completed.Decision).ExecutableStableId == goalId &&
+               OnlySoloStep(completed.Decision).State ==
+                   KLEPExecutableState.Succeeded &&
+               completed.Decision.KeySnapshot.Contains(target.Id) &&
+               canonicalProducer.TickCount == 1 &&
+               alternateProducer.TickCount == 0 &&
+               finish.TickCount == 1,
+            "The outer Goal alone completes at the target boundary after the exact two-step route executes once in order");
+    }
+
+    private static void VerifyStructuralGoalRetainsRunningStep()
+    {
+        const string goalId = "agent.structural.running.goal";
+        const string producerId = "agent.structural.running.producer";
+        KLEPKeyDefinition target = Key("agent.structural.running.target");
+        var producer = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Running,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.running.neuron");
+        neuron.RegisterExecutable(producer);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace first = agent.Tick();
+        KLEPExecutableRuntimeSnapshot firstGoal = Runtime(first, goalId);
+        KLEPGoalStructuralRuntimeSnapshot firstStructural =
+            firstGoal.Goal.Structural;
+        Expect(first.Decision.SelectedExecutableId == goalId &&
+               first.Decision.CurrentSoloExecutableId == goalId &&
+               OnlySoloStep(first.Decision).ExecutableStableId == goalId &&
+               firstGoal.RunIndex == 1 &&
+               firstStructural.CurrentStepIndex == 0 &&
+               firstStructural.ActiveStep.ExecutableStableId == producerId &&
+               firstStructural.ActiveStep.State == KLEPExecutableState.Running &&
+               firstStructural.ActiveStep.RunIndex == 1,
+            "A Running delegated root retains both its route step and the outer Goal tenure");
+
+        agent.RequestExecutableRemap();
+        KLEPAgentTickTrace second = agent.Tick();
+        KLEPExecutableRuntimeSnapshot secondGoal = Runtime(second, goalId);
+        KLEPGoalStructuralRuntimeSnapshot secondStructural =
+            secondGoal.Goal.Structural;
+        Expect(second.Decision.SelectedExecutableId == goalId &&
+               second.Decision.CurrentSoloExecutableId == goalId &&
+               OnlySoloStep(second.Decision).ExecutableStableId == goalId &&
+               secondGoal.RunIndex == 1 &&
+               secondStructural.RouteComplete &&
+               !secondStructural.TargetSatisfied &&
+               secondStructural.LastStepResults.Count == 1 &&
+               secondStructural.LastStepResults[0].RunIndex == 1 &&
+               producer.TickCount == 2 &&
+               !second.Decision.KeySnapshot.Contains(target.Id),
+            "An unchanged explicit remap reuses the exact structural binding, continues the same delegated run, and stages output without premature completion");
+
+        KLEPAgentTickTrace third = agent.Tick();
+        Expect(OnlySoloStep(third.Decision).State ==
+                   KLEPExecutableState.Succeeded &&
+               third.Decision.KeySnapshot.Contains(target.Id) &&
+               producer.TickCount == 2,
+            "A retained structural Goal concludes when the Running step's target becomes factual on the next boundary");
+    }
+
+    private static void VerifyStructuralGoalRetriesFailedAndBlockedSteps()
+    {
+        const string failedGoalId = "agent.structural.failed.goal";
+        const string failedProducerId = "agent.structural.failed.producer";
+        KLEPKeyDefinition failedTarget = Key("agent.structural.failed.target");
+        var failedProducer = new SequenceProbeExecutable(
+            Definition(
+                failedProducerId,
+                0f,
+                declaredOutputs: new[] { failedTarget }),
+            failedTarget,
+            KLEPExecutableTickStatus.Failed,
+            KLEPExecutableTickStatus.Succeeded);
+        var failedGoal = new KLEPStructuralGoal(
+            Definition(
+                failedGoalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            failedTarget.Id);
+        var failedNeuron = new KLEPNeuron("agent.structural.failed.neuron");
+        failedNeuron.RegisterExecutable(failedProducer);
+        failedNeuron.RegisterExecutable(failedGoal);
+        var failedAgent = new KLEPAgent(failedNeuron);
+
+        KLEPAgentTickTrace failed = failedAgent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot failedStructural =
+            Runtime(failed, failedGoalId).Goal.Structural;
+        Expect(failed.Decision.CurrentSoloExecutableId == failedGoalId &&
+               failedStructural.CurrentStepIndex == 0 &&
+               failedStructural.LastStepResults.Count == 1 &&
+               failedStructural.LastStepResults[0].State ==
+                   KLEPExecutableState.Failed &&
+               failedStructural.LastStepResults[0].RunIndex == 1,
+            "A failed delegated root leaves the adopted route and outer Goal available for retry");
+
+        KLEPAgentTickTrace retried = failedAgent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot retriedStructural =
+            Runtime(retried, failedGoalId).Goal.Structural;
+        Expect(retried.Decision.CurrentSoloExecutableId == failedGoalId &&
+               retriedStructural.RouteComplete &&
+               retriedStructural.LastStepResults.Count == 1 &&
+               retriedStructural.LastStepResults[0].State ==
+                   KLEPExecutableState.Succeeded &&
+               retriedStructural.LastStepResults[0].RunIndex == 2 &&
+               failedProducer.TickCount == 2,
+            "A failed delegated root is rearmed and retried as a new child run under the same outer Goal");
+        KLEPAgentTickTrace failedCompleted = failedAgent.Tick();
+        Expect(OnlySoloStep(failedCompleted.Decision).State ==
+                   KLEPExecutableState.Succeeded &&
+               failedCompleted.Decision.KeySnapshot.Contains(failedTarget.Id),
+            "A successfully retried delegated root completes its Goal only after factual target visibility");
+
+        const string blockedGoalId = "agent.structural.blocked.goal";
+        const string blockedProducerId = "agent.structural.blocked.producer";
+        KLEPKeyDefinition permit = Key("agent.structural.blocked.permit");
+        KLEPKeyDefinition blockedTarget = Key("agent.structural.blocked.target");
+        var blockedProducer = new SequenceProbeExecutable(
+            new KLEPExecutableDefinition(
+                blockedProducerId,
+                blockedProducerId,
+                KLEPExecutableKind.Action,
+                executionLocks: new[]
+                {
+                    new KLEPLock(
+                        "agent.structural.blocked.lock",
+                        "Permit present",
+                        new KLEPKeyPresent(permit.Id.Value))
+                },
+                declaredOutputs: new[] { blockedTarget }),
+            blockedTarget,
+            KLEPExecutableTickStatus.Succeeded);
+        var blockedGoal = new KLEPStructuralGoal(
+            Definition(
+                blockedGoalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            blockedTarget.Id);
+        var blockedNeuron = new KLEPNeuron("agent.structural.blocked.neuron");
+        blockedNeuron.RegisterExecutable(blockedProducer);
+        blockedNeuron.RegisterExecutable(blockedGoal);
+        var blockedAgent = new KLEPAgent(blockedNeuron);
+
+        KLEPAgentTickTrace blocked = blockedAgent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot blockedStructural =
+            Runtime(blocked, blockedGoalId).Goal.Structural;
+        Expect(blocked.Decision.CurrentSoloExecutableId == blockedGoalId &&
+               blockedStructural.Solution.Disposition ==
+                   KLEPGoalStructuralSolutionDisposition.Conditional &&
+               blockedStructural.CurrentStepIndex == 0 &&
+               blockedStructural.ActiveStep.State == KLEPExecutableState.Idle &&
+               blockedStructural.LastStepResults.Count == 0 &&
+               blockedProducer.TickCount == 0,
+            "A conditional route may be adopted while a currently blocked root remains unadvanced");
+
+        blockedNeuron.AddKey(
+            permit,
+            sourceId: "agent.structural.blocked.test");
+        KLEPAgentTickTrace unblocked = blockedAgent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot unblockedStructural =
+            Runtime(unblocked, blockedGoalId).Goal.Structural;
+        Expect(unblocked.Decision.CurrentSoloExecutableId == blockedGoalId &&
+               unblockedStructural.RouteComplete &&
+               unblockedStructural.LastStepResults.Count == 1 &&
+               unblockedStructural.LastStepResults[0].State ==
+                   KLEPExecutableState.Succeeded &&
+               blockedProducer.TickCount == 1,
+            "An adopted conditional route retries its blocked root after the external condition becomes factual");
+        KLEPAgentTickTrace blockedCompleted = blockedAgent.Tick();
+        Expect(OnlySoloStep(blockedCompleted.Decision).State ==
+                   KLEPExecutableState.Succeeded &&
+               blockedCompleted.Decision.KeySnapshot.Contains(blockedTarget.Id),
+            "A formerly blocked structural Goal still waits for the target's next committed boundary before completion");
+    }
+
+    private static void VerifyStructuralGoalWithPresentTargetRemainsUnadopted()
+    {
+        const string goalId = "agent.structural.present.goal";
+        const string producerId = "agent.structural.present.producer";
+        KLEPKeyDefinition target = Key("agent.structural.present.target");
+        var producer = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.present.neuron");
+        neuron.InitializeKey(target, sourceId: "agent.structural.present.initial");
+        neuron.RegisterExecutable(producer);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace trace = agent.Tick();
+        KLEPExecutableRuntimeSnapshot goalRuntime = Runtime(trace, goalId);
+        CandidateEvaluation goalCandidate = Candidate(trace, goalId);
+        Expect(trace.Decision.KeySnapshot.Contains(target.Id) &&
+               trace.Decision.SelectedExecutableId == null &&
+               trace.Decision.CurrentSoloExecutableId == null &&
+               trace.Decision.IsPatient &&
+               goalCandidate.IsEligible &&
+               !goalCandidate.Score.HasValue &&
+               trace.GuidanceRequest != null &&
+               trace.GuidanceRequest.EligibleExecutableIds.Count == 1 &&
+               trace.GuidanceRequest.EligibleExecutableIds[0] == producerId &&
+               goalRuntime.RunIndex == 0 &&
+               goalRuntime.State == KLEPExecutableState.Idle &&
+               goalRuntime.Goal.Structural.Solution == null &&
+               producer.TickCount == 0,
+            "A structural Goal whose target is already factual keeps truthful Lock eligibility but stays outside selection, learning bootstrap, and guidance");
+    }
+
+    private static void VerifyStructuralGoalWithoutSolutionStaysOutOfActionableSet()
+    {
+        const string goalId = "agent.structural.no-solution.goal";
+        KLEPKeyDefinition target =
+            Key("agent.structural.no-solution.target");
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.no-solution.neuron");
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace trace = agent.Tick();
+        CandidateEvaluation candidate = Candidate(trace, goalId);
+        KLEPGoalStructuralRuntimeSnapshot structural =
+            Runtime(trace, goalId).Goal.Structural;
+        Expect(candidate.IsEligible &&
+               !candidate.Score.HasValue &&
+               structural.Solution != null &&
+               structural.Solution.Disposition ==
+                   KLEPGoalStructuralSolutionDisposition.NoSolution &&
+               trace.Decision.IsPatient &&
+               trace.Decision.SelectedExecutableId == null,
+            "A structural Goal with no mapped target producer remains Lock-eligible evidence but cannot be adopted or selected");
+        Expect(trace.GuidanceRequest != null &&
+               trace.GuidanceRequest.EligibleExecutableIds.Count == 0 &&
+               trace.BestEligibleQValue == 0f &&
+               agent.GetExperienceSnapshot().Count == 0,
+            "A no-solution structural Goal cannot enter guidance, Q bootstrap, confidence, or experience identities");
+    }
+
+    private static void VerifyLosingStructuralGoalDoesNotClaimActiveLease()
+    {
+        const string goalId = "agent.structural.losing.goal";
+        const string producerId = "agent.structural.losing.producer";
+        const string winnerId = "agent.structural.losing.winner";
+        KLEPKeyDefinition target = Key("agent.structural.losing.target");
+        var producer = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                5f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var winner = new ProbeExecutable(
+            Definition(winnerId, 10f),
+            KLEPExecutableTickStatus.Running);
+        var neuron = new KLEPNeuron("agent.structural.losing.neuron");
+        neuron.RegisterExecutable(producer);
+        neuron.RegisterExecutable(goal);
+        neuron.RegisterExecutable(winner);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace trace = agent.Tick();
+        KLEPExecutableRuntimeSnapshot goalRuntime = Runtime(trace, goalId);
+        KLEPGoalStructuralRuntimeSnapshot structural =
+            goalRuntime.Goal.Structural;
+        Expect(trace.Decision.SelectedExecutableId == winnerId &&
+               OnlySoloStep(trace.Decision).ExecutableStableId == winnerId &&
+               structural.Solution != null &&
+               structural.Solution.HasExecutableSolution &&
+               structural.CurrentStepIndex == 0,
+            "An adoptable structural route may be prepared before ordinary Solo arbitration without forcing selection");
+        Expect(goalRuntime.State == KLEPExecutableState.Idle &&
+               structural.ActiveStep == null &&
+               producer.TickCount == 0,
+            "A structural Goal that loses arbitration exposes no active lease and never advances its bound next step");
+    }
+
+    private static void VerifyStructuralGoalRebindsAfterProducerTenureChanges()
+    {
+        const string goalId = "agent.structural.tenure.goal";
+        const string producerId = "agent.structural.tenure.producer";
+        KLEPKeyDefinition target = Key("agent.structural.tenure.target");
+        var oldProducer = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Running);
+        var replacement = new SequenceProbeExecutable(
+            Definition(
+                producerId,
+                0f,
+                declaredOutputs: new[] { target }),
+            target,
+            KLEPExecutableTickStatus.Succeeded);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                goalId,
+                10f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var neuron = new KLEPNeuron("agent.structural.tenure.neuron");
+        neuron.RegisterExecutable(oldProducer);
+        neuron.RegisterExecutable(goal);
+        var agent = new KLEPAgent(neuron);
+
+        KLEPAgentTickTrace original = agent.Tick();
+        KLEPGoalStructuralRuntimeSnapshot originalStructural =
+            Runtime(original, goalId).Goal.Structural;
+        string originalTenure =
+            originalStructural.Solution.Steps[0].RootTenureId;
+        Expect(original.Decision.CurrentSoloExecutableId == goalId &&
+               originalStructural.ActiveStep.State ==
+                   KLEPExecutableState.Running &&
+               oldProducer.TickCount == 1,
+            "The initial structural solution leases the original producer tenure");
+
+        neuron.RemoveExecutable(producerId);
+        neuron.RegisterExecutable(replacement);
+        KLEPAgentTickTrace invalidated = agent.Tick();
+        KLEPExecutableRuntimeSnapshot invalidatedGoal =
+            Runtime(invalidated, goalId);
+        KLEPGoalStructuralRuntimeSnapshot reboundStructural =
+            invalidatedGoal.Goal.Structural;
+        string replacementTenure =
+            reboundStructural.Solution.Steps[0].RootTenureId;
+        Expect(originalTenure != replacementTenure &&
+               invalidated.Decision.SelectedExecutableId == null &&
+               invalidated.Decision.CurrentSoloExecutableId == null &&
+               invalidatedGoal.State == KLEPExecutableState.Cancelled &&
+               reboundStructural.ActiveStep == null &&
+               reboundStructural.Solution.Steps[0].ExecutableStableId ==
+                   producerId &&
+               oldProducer.TickCount == 1 &&
+               replacement.TickCount == 0,
+            "A catalog tenure change cancels the stale outer lease and installs a route bound to the replacement root without claiming or advancing a new lease in the same Tick");
+
+        KLEPAgentTickTrace resumed = agent.Tick();
+        Expect(resumed.Decision.SelectedExecutableId == goalId &&
+               resumed.Decision.CurrentSoloExecutableId == goalId &&
+               Runtime(resumed, goalId).Goal.Structural.RouteComplete &&
+               replacement.TickCount == 1 &&
+               !resumed.Decision.KeySnapshot.Contains(target.Id),
+            "The outer Goal can resume on the following Tick using only the replacement producer tenure");
+        KLEPAgentTickTrace completed = agent.Tick();
+        Expect(OnlySoloStep(completed.Decision).State ==
+                   KLEPExecutableState.Succeeded &&
+               completed.Decision.KeySnapshot.Contains(target.Id) &&
+               oldProducer.TickCount == 1 &&
+               replacement.TickCount == 1,
+            "The rebound structural Goal completes from the replacement producer's factual output");
+    }
+
     private static void VerifyAgentAdvancesNeuronExactlyOnce()
     {
         var neuron = new KLEPNeuron("agent.once.neuron");
@@ -2582,6 +3167,52 @@ internal static class Program
             $"Candidate '{stableId}' was not present in the Agent trace.");
     }
 
+    private static KLEPExecutableRuntimeSnapshot Runtime(
+        KLEPAgentTickTrace trace,
+        string stableId)
+    {
+        for (int index = 0;
+             index < trace.Decision.ExecutableStates.Count;
+             index++)
+        {
+            KLEPExecutableRuntimeSnapshot runtime =
+                trace.Decision.ExecutableStates[index];
+            if (StringComparer.Ordinal.Equals(
+                    runtime.ExecutableStableId, stableId))
+            {
+                return runtime;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Runtime '{stableId}' was not present in the Agent trace.");
+    }
+
+    private static KLEPExecutableStepTrace OnlySoloStep(
+        KLEPDecisionTrace trace)
+    {
+        KLEPExecutableStepTrace found = null;
+        for (int index = 0; index < trace.Executions.Count; index++)
+        {
+            KLEPExecutableStepTrace step = trace.Executions[index];
+            if (step.Kind != KLEPExecutableStepKind.Solo)
+            {
+                continue;
+            }
+
+            if (found != null)
+            {
+                throw new InvalidOperationException(
+                    "Expected one top-level Solo step, but found more than one.");
+            }
+
+            found = step;
+        }
+
+        return found ?? throw new InvalidOperationException(
+            "Expected one top-level Solo step, but found none.");
+    }
+
     private static bool HasRootDefinition(KLEPNeuron neuron, string stableId)
     {
         IReadOnlyList<KLEPExecutableDefinition> definitions =
@@ -3025,6 +3656,48 @@ internal static class Program
                 }
 
                 context.Add(emitDefinition);
+            }
+
+            return status;
+        }
+    }
+
+    private sealed class SequenceProbeExecutable : KLEPExecutableBase
+    {
+        private readonly KLEPExecutableTickStatus[] statuses;
+        private readonly KLEPKeyDefinition emitOnSuccess;
+
+        internal SequenceProbeExecutable(
+            KLEPExecutableDefinition definition,
+            KLEPKeyDefinition emitOnSuccess,
+            params KLEPExecutableTickStatus[] statuses)
+            : base(definition)
+        {
+            this.emitOnSuccess = emitOnSuccess;
+            if (statuses == null || statuses.Length == 0)
+            {
+                throw new ArgumentException(
+                    "A sequence probe requires at least one Tick status.",
+                    nameof(statuses));
+            }
+
+            this.statuses = (KLEPExecutableTickStatus[])statuses.Clone();
+        }
+
+        public int TickCount { get; private set; }
+
+        protected override KLEPExecutableTickStatus OnTick(
+            KLEPExecutionContext context)
+        {
+            int statusIndex = TickCount < statuses.Length
+                ? TickCount
+                : statuses.Length - 1;
+            TickCount++;
+            KLEPExecutableTickStatus status = statuses[statusIndex];
+            if (status == KLEPExecutableTickStatus.Succeeded &&
+                emitOnSuccess != null)
+            {
+                context.Add(emitOnSuccess);
             }
 
             return status;

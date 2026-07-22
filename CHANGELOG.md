@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0-preview.4 - 2026-07-22
+
+- Added Goal Structural Solution V1. One explicitly targeted, otherwise empty
+  root Solo Goal may receive a deterministic Observer-built route through the
+  guaranteed outputs of exact registered root Actions. The Agent caches the
+  immutable solution, leases only those Actions, preserves their Locks and
+  lifecycle authority, and invalidates the route when its mapped structure
+  changes.
+- Added the separate dependency-free `Roll4d4.Klep.Imagination` source project.
+  It targets .NET 8 for framework `System.Text.Json` support and references the
+  existing `netstandard2.1` main library. There is no new `PackageReference`.
+- Added a strict Strong Manifest compiler and materializer. Model-shaped JSON
+  may choose only a project-admitted capability version and closed, bounded
+  arguments; trusted descriptors own executable identity, Locks, score,
+  outputs, lifecycle, success, and factories. Weak Conjectures cannot compile
+  or run. No model adapter or generated-code execution is included.
+- Added engine-free weapon behaviors plus portable fixtures for ammunition-node
+  knowledge, civilian safety Desire, contextual shot Ethics, zombie cognition,
+  and one checked-in four-trial Cover/Route sandbox demonstration.
+- Expanded the public regression surface from 17 to 25 executable suites. The
+  current complete run passes **4,988 assertion executions** with zero build
+  warnings or errors.
+- Repaired stale structural-solution and Unity composition harness coverage in
+  the source project; Unity-only hosts, scenes, ScriptableObjects, Editor tools,
+  and integration harnesses remain outside this engine-independent repository.
+- Updated the public contracts, evidence accounting, comparison guidance, and
+  provenance boundary for the preview.4 implementation.
+
 ## 2.0.0-preview.3 - 2026-07-21
 
 - Added the portable Desire system for ordered project-authored preferred

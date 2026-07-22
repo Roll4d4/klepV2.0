@@ -23,9 +23,10 @@ One Agent Tick performs one ordered decision cycle:
    accepted removal and then initialize committed registrations;
 5. settle every eligible root Tandem, including Tandem Goals, in deterministic
    waves;
-6. evaluate eligible root Solos, compose finite inspectable influence in its
-   accepted component order, and select, retain, interrupt, or advance at most
-   one;
+6. evaluate Lock-eligible root Solos, reject any structural Goal without a
+   current exact solution, compose finite inspectable influence in its accepted
+   component order, and select, retain, interrupt, or advance at most one root
+   or its one leased structural step;
 7. validate and stage outputs through the passive Neuron storage API;
 8. reduce the post-decision Intention ledger from actual root Solo Goal
    lifecycle evidence and freeze the decision/fault/runtime/intention trace;
@@ -55,9 +56,11 @@ does Intention reduce the resulting immutable evidence. Nothing reads the
 ledger during the decision that produced it.
 
 V1 recognizes only actual advances of already-authored **root Solo Goals**.
-Ordinary Actions, Sensors, Routers, Goal-owned descendants, and automatic
-Tandem Goals never create intentions. An Observer map, dependency proposal,
-projection, or suggested route is also not an adopted Goal.
+Ordinary Actions, Sensors, Routers, Goal-owned descendants, structural-solution
+leased roots, and automatic Tandem Goals never create intentions. An Observer
+map, dependency proposal, projection, or suggested route is not itself an
+adopted Goal. When the Agent actually adopts an authored structural Goal, that
+outer root Goal—not its immutable solution or leased step—is the intention.
 
 One intention is identified independently from one Goal run. Its identity
 binds the root Goal stable ID, exact registration tenure, and deterministic
@@ -162,12 +165,76 @@ cycles, missing producers, and Goal-child ownership. It is not another Agent
 Tick, an eligibility result, a selected action sequence, or an adopted Goal
 recipe.
 
-The Agent does not automatically execute, install, or materialize a proposal.
-It still evaluates current Locks from the current Neuron snapshot and remains
-the only authority that selects, interrupts, advances, and fires. Any future
-route-selection or proposal-adoption policy requires a separate accepted
-contract. Observer output may affect arbitration only through an existing
-accepted influence seam after eligibility.
+The Agent does not automatically execute, install, or materialize a general
+dependency proposal. It still evaluates current Locks from the current Neuron
+snapshot and remains the only authority that selects, interrupts, advances, and
+fires. Observer output may affect arbitration only through an accepted seam.
+The one accepted route-adoption seam is the bounded structural-Goal policy
+below; it consumes a KLEP-OBS-016 solution without granting the Observer live
+authority.
+
+## Structural-Goal adoption and execution V1
+
+A structural Goal is an authored root `KLEPGoal` in `Solo` mode with no authored
+layers, no activation Key, and no `DeclaredOutputs`, paired explicitly with one
+target Key. The target states the factual end to pursue; it does not change the
+meaning of `DeclaredOutputs` and is not a promise that the Goal itself emits the
+target.
+
+The Agent evaluates the structural Goal's own Locks normally. After those Locks
+pass and before scoring/adoption, it requests or reuses one immutable solution
+from the configured structural-solution provider. No current exact solution
+makes that Goal unadoptable for the Tick. This gate may remove an otherwise
+Lock-eligible structural Goal from consideration; it cannot admit a Goal whose
+Locks failed, make another Executable eligible, or add score. Ordinary authored
+Goals retain their existing layer runtime and require no structural solution.
+
+Every accepted solution must match the active structural provider identity and
+version, exact accepted catalog revision and fingerprint, requesting Goal ID and
+registration tenure, explicit target, and every delegated root ID and tenure.
+The Agent rejects stale, malformed, or mismatched evidence before adoption or
+continued use. Because solution search does not inspect Keys, payloads, or Tick
+evidence, Key-state change alone does not invalidate the cache. A changed
+provider identity/version, accepted revision/fingerprint, Goal tenure, or
+delegated-root tenure discards the cached solution and requires a fresh query.
+
+Once selected, the outer structural Goal remains the sole selected/current Solo
+root, intention identity, and Agent navigation-learning identity. It does not
+become a container for the solution's Executable objects. For each ordered step,
+the Agent temporarily leases the exact existing registered root runtime and
+tenure named by the solution. V1 delegates only a root Solo non-Goal. The lease:
+
+- does not reparent, clone, unregister, register, or transfer ownership of the
+  Executable;
+- does not expose the leased root as a second selected Solo or create a second
+  fire path;
+- evaluates the leased root's own Locks against the ordinary immutable Agent
+  snapshot before every advance;
+- retains one Running leased step across Ticks;
+- advances to the next solution step only after the current step actually
+  succeeds;
+- rearms and retries a Failed step on a later Tick;
+- cancels a Running step whose Locks close, leaving that same step pending until
+  its Locks pass again; and
+- cancels the active lease when the outer Goal is interrupted, cancelled,
+  removed, or loses its exact valid solution.
+
+The leased Executable's lifecycle, emitted-output source identity, output
+validation, and runtime trace remain factual. The structural Goal is the one
+selected action for Agent navigation learning, so a leased advance cannot also
+create an independent Agent Q-learning transition. Evidence adapters may still
+observe the exact leased action result for learned expectations, Desire effects,
+Ethics, Emotion, or Memory without relabelling it as an independently selected
+root.
+
+At each Tick boundary the Agent tests the explicit target against factual Key
+evidence. Its presence completes the outer structural Goal with `Succeeded`,
+cancels no already-terminal step, and lets the post-decision Intention reducer
+complete the Goal's intention from ordinary committed lifecycle evidence. A
+step's `DeclaredOutputs` remains only a cumulative successful-run emission
+guarantee. Neither the solution nor the Agent assumes that one step's output
+persists until another step or coexists with any other output; if reality closes
+a later Lock, the Goal simply waits or retries under the rules above.
 
 ## Default projected-satisfaction policy
 

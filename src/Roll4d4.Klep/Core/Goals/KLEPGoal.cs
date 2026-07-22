@@ -340,6 +340,49 @@ namespace Roll4d4.Klep.Core
     }
 
     /// <summary>
+    /// A deliberately empty Goal recipe whose desired end is one factual Key.
+    /// The authored Goal still owns attraction and Locks, but its Agent may ask
+    /// the structural Observer for a route through already-registered root Solo
+    /// Executables. The target is not a DeclaredOutput: the delegated producer
+    /// remains the factual source of that Key.
+    /// </summary>
+    public sealed class KLEPStructuralGoal : KLEPGoal
+    {
+        public KLEPStructuralGoal(
+            KLEPExecutableDefinition definition,
+            KLEPKeyId targetKeyId,
+            IKLEPGoalAttractionEvaluator attractionEvaluator = null)
+            : base(definition, null, null, attractionEvaluator)
+        {
+            if (definition.ExecutionMode != KLEPExecutionMode.Solo)
+            {
+                throw new ArgumentException(
+                    "A structural Goal must use the Solo execution lane.",
+                    nameof(definition));
+            }
+
+            if (definition.DeclaredOutputs.Count != 0)
+            {
+                throw new ArgumentException(
+                    "A structural Goal's desired target is separate from " +
+                    "DeclaredOutputs; V1 structural Goals declare no outputs.",
+                    nameof(definition));
+            }
+
+            if (string.IsNullOrWhiteSpace(targetKeyId.Value))
+            {
+                throw new ArgumentException(
+                    "A structural Goal requires one non-empty target Key ID.",
+                    nameof(targetKeyId));
+            }
+
+            TargetKeyId = targetKeyId;
+        }
+
+        public KLEPKeyId TargetKeyId { get; }
+    }
+
+    /// <summary>
     /// Mutable progress for one registered Goal tenure. The authored Goal remains
     /// immutable while its owning Executable runtime advances this record.
     /// </summary>
@@ -352,6 +395,15 @@ namespace Roll4d4.Klep.Core
         private ReadOnlyCollection<KLEPExecutionResult> lastChildResults =
             new ReadOnlyCollection<KLEPExecutionResult>(
                 new List<KLEPExecutionResult>());
+        private KLEPGoalStructuralSolution structuralSolution;
+        private ReadOnlyCollection<KLEPExecutableRuntime> structuralStepRuntimes =
+            new ReadOnlyCollection<KLEPExecutableRuntime>(
+                new List<KLEPExecutableRuntime>());
+        private ReadOnlyCollection<KLEPExecutionResult> lastStructuralStepResults =
+            new ReadOnlyCollection<KLEPExecutionResult>(
+                new List<KLEPExecutionResult>());
+        private int currentStructuralStepIndex;
+        private bool structuralTargetSatisfied;
 
         internal KLEPGoalRuntime(KLEPGoal recipe)
         {
@@ -361,9 +413,22 @@ namespace Roll4d4.Klep.Core
         }
 
         internal int CurrentLayerIndex { get; private set; }
-        internal bool IsComplete => CurrentLayerIndex >= recipe.Layers.Count;
+        internal bool IsStructural => recipe is KLEPStructuralGoal;
+        internal bool IsComplete => IsStructural
+            ? structuralTargetSatisfied
+            : CurrentLayerIndex >= recipe.Layers.Count;
+        internal KLEPGoalStructuralSolution StructuralSolution =>
+            structuralSolution;
+        internal string ActiveStructuralStepExecutableId =>
+            IsStructural && structuralSolution != null &&
+            currentStructuralStepIndex >= 0 &&
+            currentStructuralStepIndex < structuralSolution.Steps.Count
+                ? structuralSolution.Steps[currentStructuralStepIndex]
+                    .ExecutableStableId
+                : null;
 
-        internal KLEPGoalRuntimeSnapshot CaptureSnapshot()
+        internal KLEPGoalRuntimeSnapshot CaptureSnapshot(
+            bool hasActiveOuterLease = false)
         {
             var layerSnapshots = new List<KLEPGoalLayerRuntimeSnapshot>(
                 recipe.Layers.Count);
@@ -389,6 +454,24 @@ namespace Roll4d4.Klep.Core
                     children));
             }
 
+            KLEPGoalStructuralRuntimeSnapshot structural = null;
+            if (IsStructural)
+            {
+                KLEPExecutableRuntimeSnapshot activeStep =
+                    hasActiveOuterLease &&
+                    currentStructuralStepIndex >= 0 &&
+                    currentStructuralStepIndex < structuralStepRuntimes.Count
+                        ? structuralStepRuntimes[currentStructuralStepIndex]
+                            .CaptureSnapshot()
+                        : null;
+                structural = new KLEPGoalStructuralRuntimeSnapshot(
+                    structuralSolution,
+                    currentStructuralStepIndex,
+                    structuralTargetSatisfied,
+                    activeStep,
+                    lastStructuralStepResults);
+            }
+
             return new KLEPGoalRuntimeSnapshot(
                 CurrentLayerIndex,
                 IsComplete,
@@ -396,7 +479,90 @@ namespace Roll4d4.Klep.Core
                     ? (KLEPKeyId?)null
                     : recipe.ActivationKey.Id,
                 layerSnapshots,
-                lastChildResults);
+                lastChildResults,
+                structural);
+        }
+
+        internal void InstallStructuralSolution(
+            KLEPGoalStructuralSolution solution,
+            IReadOnlyList<KLEPExecutableRuntime> stepRuntimes)
+        {
+            if (!IsStructural)
+            {
+                throw new InvalidOperationException(
+                    $"Goal '{recipe.StableId}' is not a structural Goal.");
+            }
+
+            if (solution == null)
+            {
+                throw new ArgumentException(
+                    "A structural Goal requires immutable solution evidence.",
+                    nameof(solution));
+            }
+
+            if (stepRuntimes == null ||
+                stepRuntimes.Count != solution.Steps.Count ||
+                (!solution.HasExecutableSolution && stepRuntimes.Count != 0))
+            {
+                throw new ArgumentException(
+                    "Structural solution steps require one exact existing root " +
+                    "runtime each.",
+                    nameof(stepRuntimes));
+            }
+
+            var copy = new List<KLEPExecutableRuntime>(stepRuntimes.Count);
+            for (int index = 0; index < stepRuntimes.Count; index++)
+            {
+                KLEPExecutableRuntime runtime = stepRuntimes[index] ??
+                    throw new ArgumentException(
+                        "Structural solution runtime bindings cannot contain null.",
+                        nameof(stepRuntimes));
+                if (!StringComparer.Ordinal.Equals(
+                        runtime.Executable.StableId,
+                        solution.Steps[index].ExecutableStableId))
+                {
+                    throw new ArgumentException(
+                        "A structural solution runtime binding does not match its " +
+                        "immutable step identity.",
+                        nameof(stepRuntimes));
+                }
+
+                copy.Add(runtime);
+            }
+
+            structuralSolution = solution;
+            structuralStepRuntimes =
+                new ReadOnlyCollection<KLEPExecutableRuntime>(copy);
+            currentStructuralStepIndex = 0;
+            structuralTargetSatisfied = false;
+            SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+        }
+
+        internal void ClearStructuralSolution()
+        {
+            if (!IsStructural)
+            {
+                return;
+            }
+
+            structuralSolution = null;
+            structuralStepRuntimes =
+                new ReadOnlyCollection<KLEPExecutableRuntime>(
+                    new List<KLEPExecutableRuntime>());
+            currentStructuralStepIndex = 0;
+            structuralTargetSatisfied = false;
+            SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+        }
+
+        internal void MarkStructuralTargetSatisfied()
+        {
+            if (!IsStructural)
+            {
+                throw new InvalidOperationException(
+                    $"Goal '{recipe.StableId}' is not a structural Goal.");
+            }
+
+            structuralTargetSatisfied = true;
         }
 
         internal void Initialize(KLEPExecutableInitializationContext context)
@@ -431,6 +597,12 @@ namespace Roll4d4.Klep.Core
             }
 
             lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(results);
+            if (IsStructural)
+            {
+                currentStructuralStepIndex = 0;
+                structuralTargetSatisfied = false;
+                SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+            }
         }
 
         internal void Enter(KLEPExecutionContext context)
@@ -440,6 +612,14 @@ namespace Roll4d4.Klep.Core
             lastChildResults = new ReadOnlyCollection<KLEPExecutionResult>(
                 new List<KLEPExecutionResult>());
 
+            if (IsStructural)
+            {
+                currentStructuralStepIndex = 0;
+                structuralTargetSatisfied = false;
+                SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+                return;
+            }
+
             if (recipe.ActivationKey != null)
             {
                 context.Add(recipe.ActivationKey);
@@ -448,6 +628,11 @@ namespace Roll4d4.Klep.Core
 
         internal KLEPExecutableTickStatus Tick(KLEPExecutionContext context)
         {
+            if (IsStructural)
+            {
+                return TickStructural(context);
+            }
+
             foreach (KLEPExecutableRuntime child in childRuntimes)
             {
                 child.Rearm(context.CycleIndex);
@@ -494,6 +679,12 @@ namespace Roll4d4.Klep.Core
 
         internal void Exit(KLEPExecutableExitContext context)
         {
+            if (IsStructural)
+            {
+                ExitStructural(context);
+                return;
+            }
+
             // Successful All/Any completion leaves no running child. If the
             // Goal is interrupted, every active child is unwound exactly once.
             KLEPExecutableExitReason childReason = IsCancellationReason(context.Reason)
@@ -535,6 +726,141 @@ namespace Roll4d4.Klep.Core
             }
 
             RethrowChildCancellationFaults(faults);
+        }
+
+        private KLEPExecutableTickStatus TickStructural(
+            KLEPExecutionContext context)
+        {
+            if (structuralSolution == null ||
+                !structuralSolution.HasExecutableSolution)
+            {
+                throw new InvalidOperationException(
+                    $"Structural Goal '{recipe.StableId}' has no Agent-adopted " +
+                    "solution.");
+            }
+
+            if (currentStructuralStepIndex >= structuralStepRuntimes.Count)
+            {
+                // Route completion is not factual target completion. The Agent
+                // observes the next committed Key boundary and concludes the
+                // outer Goal only when its explicit target is actually present.
+                SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+                return KLEPExecutableTickStatus.Running;
+            }
+
+            KLEPExecutableRuntime runtime =
+                structuralStepRuntimes[currentStructuralStepIndex];
+            runtime.Rearm(context.CycleIndex);
+            KLEPEligibility eligibility =
+                runtime.Executable.EvaluateEligibility(context.Keys);
+            if (!eligibility.IsEligible)
+            {
+                try
+                {
+                    if (runtime.TryCancel(
+                            context.Keys,
+                            context.WaveIndex,
+                            KLEPExecutableExitReason.LocksClosed,
+                            out KLEPExecutionResult cancelled))
+                    {
+                        SetStructuralResults(new[] { cancelled });
+                    }
+                    else
+                    {
+                        SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+                    }
+                }
+                catch (Exception fault)
+                {
+                    throw WrapChildFault(runtime, fault);
+                }
+
+                return KLEPExecutableTickStatus.Running;
+            }
+
+            // A root cancelled earlier in this same top-level Tick cannot be
+            // rearmed until the next boundary. Retain the route step instead of
+            // creating a second lifecycle advance.
+            if (runtime.State != KLEPExecutableState.Idle &&
+                runtime.State != KLEPExecutableState.Running)
+            {
+                SetStructuralResults(Array.Empty<KLEPExecutionResult>());
+                return KLEPExecutableTickStatus.Running;
+            }
+
+            KLEPExecutionResult result;
+            try
+            {
+                result = runtime.Advance(context.Keys, context.WaveIndex);
+            }
+            catch (Exception fault)
+            {
+                throw WrapChildFault(runtime, fault);
+            }
+
+            SetStructuralResults(new[] { result });
+            ForwardOutputs(context, result);
+            if (result.State == KLEPExecutableState.Succeeded)
+            {
+                currentStructuralStepIndex++;
+            }
+
+            return KLEPExecutableTickStatus.Running;
+        }
+
+        private void ExitStructural(KLEPExecutableExitContext context)
+        {
+            if (currentStructuralStepIndex < 0 ||
+                currentStructuralStepIndex >= structuralStepRuntimes.Count)
+            {
+                return;
+            }
+
+            KLEPExecutableRuntime runtime =
+                structuralStepRuntimes[currentStructuralStepIndex];
+            KLEPExecutableExitReason childReason =
+                IsCancellationReason(context.Reason)
+                    ? context.Reason
+                    : KLEPExecutableExitReason.Interrupted;
+            try
+            {
+                if (runtime.TryCancel(
+                        context.Keys,
+                        context.WaveIndex,
+                        childReason,
+                        out KLEPExecutionResult cancelled))
+                {
+                    SetStructuralResults(new[] { cancelled });
+                }
+            }
+            catch (Exception fault)
+            {
+                throw WrapChildFault(runtime, fault);
+            }
+        }
+
+        private void SetStructuralResults(
+            IEnumerable<KLEPExecutionResult> results)
+        {
+            var copy = new List<KLEPExecutionResult>();
+            if (results != null)
+            {
+                foreach (KLEPExecutionResult result in results)
+                {
+                    copy.Add(result ?? throw new ArgumentException(
+                        "Structural step results cannot contain null.",
+                        nameof(results)));
+                }
+            }
+
+            lastStructuralStepResults =
+                new ReadOnlyCollection<KLEPExecutionResult>(copy);
+            // Existing Goal evidence adapters inspect LastChildResults. Keep
+            // exact delegated source identity there while the richer structural
+            // snapshot explains why the root was advanced.
+            lastChildResults =
+                new ReadOnlyCollection<KLEPExecutionResult>(
+                    new List<KLEPExecutionResult>(copy));
         }
 
         private bool AdvanceAll(

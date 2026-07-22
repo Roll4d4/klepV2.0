@@ -23,10 +23,12 @@ contexts. KLEP therefore supplies no built-in actor taxonomy, duties, virtues,
 victims, threats, factions, or universally good and bad actions. Those are
 project semantics.
 
-The contemplated Humans-versus-Zombies policies are intentionally not part of
-this slice. Statements such as "a human killing a zombie is good," "allowing a
-zombie to kill a human is bad," or "flee while badly injured" belong in a
-future project policy and behavior layer. A different project can provide a
+The reusable Ethics slice intentionally contains no Humans-versus-Zombies
+morality. The zombie demonstration now supplies two narrow project policies:
+the accepted self-bite appraisal in KLEP-UNITY-010 and the actual-shooter shot
+appraisal in KLEP-UNITY-013. They are examples outside Core, documented in
+`ZOMBIE_TEST_CONTRACT.md`, and do not establish that an actor, target, species,
+or death is universally good or bad. A different project can provide a
 different policy or replace the supplied weighted evaluator entirely.
 
 ## Context and request
@@ -171,15 +173,15 @@ an approved higher-cognition ranking contract.
 
 ## Still open
 
-- The owning host and exact phase that evaluate Ethics and advance Emotion
-  relative to the owning Agent's Tick and its guarded Neuron Local boundary.
-- The project context schema and policy rules for the Humans-versus-Zombies
-  experiment.
-- The observation timestamp and causal evidence fields each project context
-  needs in addition to the evaluation Tick.
-- The host boundary that explicitly links an Ethics evaluation with a Memory
-  experience, Emotion transition, and causal Executable without guessing from
-  Tick coincidence.
+- A reusable host-neutral phase contract beyond the zombie demonstration's
+  accepted bite and shot transaction order.
+- Project context schemas and policy rules beyond the zombie demonstration's
+  exact self-bite and actual-shooter receipt policies.
+- Observation timestamps and causal evidence fields for contexts other than
+  those explicitly bound by a project adapter.
+- A generic host boundary beyond the demo adapters that links an Ethics
+  evaluation with Memory, Emotion, and a causal Executable without guessing
+  from Tick coincidence.
 - How competing Ethics, Emotion, Memory, Observer-map/projection, optional
   Observer deliberation, and learned influences are combined and explained
   without changing eligibility.

@@ -226,6 +226,43 @@ single Solo lane is considered.
   `DeclaredOutputs` guarantee after its activation and forwarded child output
   are included.
 
+### Structural Goals
+
+The accepted structural-Goal variant is deliberately distinguishable from an
+ordinary authored Goal recipe. It must be a registered root Solo `KLEPGoal`
+with no authored layers, no activation Key, and no `DeclaredOutputs`, plus one
+explicit target-Key association. `DeclaredOutputs` is not reused as a desired
+end: the structural Goal promises no emission of its own, and succeeds only
+when the target is factually present under the Agent policy.
+
+An empty Goal without that explicit target association retains the ordinary
+empty authored-recipe behavior. An associated structural Goal is advanced by
+the Agent's structural-solution runtime instead of treating its empty layer list
+as immediate authored completion.
+
+A structural solution names existing registered root Executables; it does not
+turn them into Goal-owned children. The Agent may lease only an exact root Solo
+non-Goal runtime and registration tenure. During a lease:
+
+- the Executable remains Neuron-registered and retains its original ownership,
+  definition, mode, Locks, runtime, and stable ID;
+- no clone, proxy, reparenting, or second runtime is created;
+- the outer structural Goal remains the selected/current Solo root;
+- the leased root is not independently selected, scored, or learned again;
+- its own lifecycle callbacks and output validation run exactly once for each
+  physical advance; and
+- cancellation of the outer Goal unwinds any Running lease before the outer
+  Goal exits.
+
+A leased step may run, succeed, fail, block, cancel, rearm, and retry under its
+ordinary lifecycle and Lock rules. Success advances structural solution
+progress but does not by itself complete the outer Goal unless the explicit
+target is factually present. No structural solution changes the guarantee that
+`DeclaredOutputs` describes cumulative successful-run emissions rather than
+final Key persistence, removal, or coexistence.
+
+### Authored child failure
+
 A child `Failed` result does not directly fail its Goal in V1:
 
 - `AllMustFire` advances every eligible unsatisfied child in authored order,

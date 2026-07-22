@@ -20,7 +20,7 @@ clearly identify itself as an open hypothesis.
 
 ## Present review boundary
 
-As of `2.0.0-preview.3`:
+As of `2.0.0-preview.4`:
 
 - the repository is maintained by one project owner;
 - its contract suites and CI are project-authored internal evidence;
@@ -28,6 +28,13 @@ As of `2.0.0-preview.3`:
 - no production adoption, comparative benchmark, or peer-reviewed result is
   claimed; and
 - the public API is preview software and may change between preview releases.
+
+Preview.4's Imagination examples do not hide a model-generated implementation.
+The checked-in Cover/Route Strong Manifest is hand-authored, its capability is
+project-admitted code, and its four sandbox scenarios are deterministic project
+fixtures. The release includes no model adapter. This separates the tested
+proposal boundary from the later hypothesis that a model might propose useful
+manifests.
 
 This boundary is intentional disclosure, not a substitute for review. See
 [`CLAIMS_AND_EVIDENCE.md`](CLAIMS_AND_EVIDENCE.md) for the exact evidence KLEP

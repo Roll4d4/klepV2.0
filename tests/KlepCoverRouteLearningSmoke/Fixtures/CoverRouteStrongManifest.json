@@ -1,0 +1,24 @@
+{
+  "schema": "klep.imagination.strong.v1",
+  "requestFingerprint": "__ACTIVE_REQUEST_FINGERPRINT__",
+  "displayName": "Route around cover through the south gap",
+  "capability": {
+    "id": "demo.navigate-cover-route",
+    "version": "1",
+    "arguments": {
+      "arrivalRadius": 0.8,
+      "maximumTicks": 240,
+      "routeId": "south-gap-v1",
+      "waypoint1X": 0.0,
+      "waypoint1Z": -3.2,
+      "waypoint2X": 4.8,
+      "waypoint2Z": -3.0,
+      "waypoint3X": 6.2,
+      "waypoint3Z": -1.5
+    }
+  },
+  "hypothesis": {
+    "targetKey": "a41b6299dc524774be0616710f9387af",
+    "explanation": "Three bounded waypoints may route the learner around the authored cover walls to the fixed trial target."
+  }
+}

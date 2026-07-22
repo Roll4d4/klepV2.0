@@ -15,12 +15,26 @@ arbitration, and history. Every Agent also owns a revisioned recursive map of
 the behavior it can currently execute; optional Observer policy may project
 complete candidate outcomes or polish scores, but it cannot bypass Locks.
 
-Preview.3 separates three additional authorities. Desire evaluates which
+Preview.4 separates additional authorities. Desire evaluates which
 project-authored conditions matter now. Learned Expectations retains empirical
 effect estimates without deciding value. The Agent may apply that evidence only
 to behavior whose Locks already passed, and its Intention ledger records the
 Goal commitment that actually followed. None of these components may invent a
 Key, open a Lock, or perform a physical effect.
+
+Goal Structural Solution V1 lets one explicitly targeted, otherwise empty root
+Solo Goal ask the structural Observer for a deterministic route through the
+guaranteed outputs of already-registered root Actions. The Agent caches that
+immutable answer, leases only those exact Actions, and invalidates it when the
+catalog or mapped shape changes. This is bounded self-mapping over known
+capabilities, not general planning.
+
+The separate `Roll4d4.Klep.Imagination` project exposes an even narrower
+proposal boundary. A strict Strong Manifest may select one project-admitted
+capability version and closed, bounded arguments. Trusted descriptors still
+own Locks, outputs, score, lifecycle, success, and the executable factory.
+Weak Conjectures remain non-runnable evidence. Preview.4 includes no model
+adapter and no mechanism that authors or executes generated code.
 
 This is preview source. It is not a claim of human cognition, a scientific
 validation of a cognitive architecture, or a proven replacement for behavior
@@ -69,8 +83,8 @@ The familiar concepts have stricter local meanings:
 | Executable | action, sensor, rule, or behavior node | declared output plus explicit lifecycle, teardown, and trace evidence |
 | Neuron | blackboard and behavior catalog | passive Key storage plus the registered root Executable set |
 | Agent | utility selector and scheduler | exclusive decision clock, runtime ownership, deterministic Tandem settlement, then at most one eligible Solo behavior |
-| Goal | composite Executable | owns ordered child layers and may run in Solo or Tandem; it is not a search planner |
-| Observer | structural and advisory policy seam | maps the Executable catalog and may project or rank eligible roots, but may never bypass Locks |
+| Goal | composite Executable | owns authored child layers or one cached structural solution and may run in Solo or Tandem; it does not search during execution |
+| Observer | structural and advisory policy seam | maps the Executable catalog, answers bounded structure queries, and may project or rank eligible roots, but may never bypass Locks |
 
 KLEP's adoption case is not that those ingredients are new. It is their shared
 execution contract: immutable evaluation snapshots, staged Key mutations,
@@ -80,8 +94,8 @@ traces.
 
 ## About the cognition-inspired names
 
-Optional modules named Desire, Learned Expectations, Intention, Ethics,
-Emotion, Memory, Agent learning, and Cognition are bounded computational
+Optional modules named Desire, Learned Expectations, Intention, Imagination,
+Ethics, Emotion, Memory, Agent learning, and Cognition are bounded computational
 mechanisms and project vocabulary:
 
 - Desire evaluates ordered project-authored preferred conditions as
@@ -92,6 +106,10 @@ mechanisms and project vocabulary:
 - Intention is the Agent's post-decision ledger for actual root Goal adoption,
   suspension, resumption, completion, and abandonment. It does not add
   stickiness or choose Goals.
+- Imagination compiles only closed, project-admitted Strong Manifests into
+  fresh Executables whose trusted descriptors own every executable semantic.
+  It does not author code, discover capabilities, or make Weak Conjectures
+  runnable.
 - Ethics applies project-authored contextual rules to produce traced numeric
   influence. It does not solve ethics.
 - Emotion integrates influence on two designer-named axes with velocity,
@@ -110,9 +128,9 @@ classification.
 
 ## Evidence, stated at its actual strength
 
-The repository contains 17 project-authored, dependency-free console suites.
-The current run executes **4,676 assertions**. That number means assertion
-executions, including repetitions inside scenarios; it does not mean 4,676
+The repository contains 25 project-authored, dependency-free console suites.
+The current run executes **4,988 assertions**. That number means assertion
+executions, including repetitions inside scenarios; it does not mean 4,988
 independent tests.
 
 The suites span approved CoreContract behavior, candidate behavior-library
@@ -126,10 +144,12 @@ validation ladder, supported claims, and claims not yet demonstrated.
 
 ## Build and verify
 
-The runtime library targets `netstandard2.1` and has no Unity, NuGet, or
-third-party runtime dependency. The repository's contributor harness and
-examples use the .NET 10 SDK; a consuming application does not need to target
-.NET 10 if it can reference a `netstandard2.1` library.
+The main runtime library targets `netstandard2.1`. The split Imagination
+project targets .NET 8 because its strict manifest reader uses the framework's
+`System.Text.Json`. Neither project has a `PackageReference`, a Unity
+dependency, or a third-party runtime dependency. Install the .NET 8 and .NET
+10 SDKs to reproduce the complete contributor build; projects that reference
+only the main library may consume its `netstandard2.1` output.
 
 ```powershell
 dotnet build KLEP.sln --configuration Release
@@ -152,8 +172,11 @@ src/Roll4d4.Klep/
   Memory/        experience, heat, consolidation, recall, continuation state
   Cognition/     explicit Ethics -> Emotion -> Memory composition
 
+src/Roll4d4.Klep.Imagination/
+  strict Strong/Weak JSON boundaries and trusted capability materialization
+
 examples/        runnable consumer code
-tests/           17 executable internal contract and scenario suites
+tests/           25 executable internal contract and scenario suites
 docs/            constitution, contracts, decisions, evidence, provenance
 scripts/         local build-and-test entry point
 ```
@@ -165,9 +188,10 @@ Unity project and not a NuGet distribution (`IsPackable=false`). Unity hosts,
 the Editor Observatory, and the versioned UPM tarball live on
 [itch.io](https://roll4d4.itch.io/klep).
 
-`2.0.0-preview.3` does not promise API stability, production fitness,
+`2.0.0-preview.4` does not promise API stability, production fitness,
 benchmark results, persistence codecs, networking, a general planner, an
-imagination model, or automatic project integration. Evaluate one real
+imagination model, autonomous capability invention, or automatic project
+integration. Evaluate one real
 behavior, inspect its trace, measure your workload, and pin the exact reviewed
 commit before depending on the preview.
 

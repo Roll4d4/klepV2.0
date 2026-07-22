@@ -17,7 +17,9 @@ Intention cannot:
 - advance, retry, complete, or cancel an Executable;
 - train or query navigation learning or `KLEPLearnedExpectations`;
 - invoke or influence the Observer; or
-- install an Observer proposal or an unauthored Goal recipe.
+- install a general Observer proposal or an unauthored Goal recipe. The Agent's
+  accepted structural-Goal boundary may consume an immutable solution, but
+  Intention only observes the resulting outer Goal lifecycle afterward.
 
 The public `KLEPIntentionState` surface exposes only its latest immutable
 snapshot. All transition methods remain inside the Agent assembly.
@@ -34,9 +36,16 @@ These do not create intentions:
 - a root Action, Sensor, or Router;
 - an automatic root Tandem Goal;
 - a Goal-owned child, including a nested Goal;
+- a root Solo non-Goal temporarily leased as one structural-Goal solution step;
 - an eligible or scored Goal that was not advanced;
-- a structural dependency proposal or projected state; or
+- a structural dependency proposal, solution, or projected state by itself; or
 - a Patient Tick.
+
+An authored root Solo structural Goal remains the adopted end while its Agent
+leases existing roots to pursue the solution. The solution is not an intention,
+and changing, retrying, blocking, or completing one leased step creates no
+second intention. When factual target presence makes the outer Goal succeed,
+the ordinary outer-Goal lifecycle evidence completes its intention.
 
 ## Identity and state
 
@@ -113,4 +122,6 @@ previous Tick's transitions.
 V1 intentionally defines no manual adoption/abandon command, maximum number of
 suspended intentions, expiry, priority stack, commitment score, switching
 resistance, persistence codec, Memory integration, Desire integration, or
-Observer route-adoption policy. Adding any of those is a separate decision.
+general Observer route-adoption policy. The narrow structural-Goal policy is
+owned entirely by the Agent and does not expand Intention authority. Adding any
+other adoption policy is a separate decision.

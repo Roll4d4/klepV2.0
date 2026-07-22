@@ -23,16 +23,17 @@ silently become permanent because a build passes.
 | Contract | Authority boundary | CoreContract suite |
 |---|---|---|
 | `KEY_CONTRACT.md` | Key identity, values, lifetime, visibility, exact authority, and exchange | `KlepKeySmoke`, `KlepLockSmoke` |
-| `EXECUTABLE_CONTRACT.md` | eligibility, guaranteed successful outputs, lifecycle, Solo/Tandem modes, and Goal recipe semantics | `KlepExecutableSmoke` |
-| `AGENT_CONTRACT.md` | exclusive Agent Tick, runtime/Goal ownership, Tandem settlement, Solo arbitration, projected satisfaction, optional learned-Desire contribution, navigation learning, confidence, and guidance request | `KlepAgentSmoke`, `KlepExecutableSmoke`, `KlepLearnedExpectationsSmoke` |
-| `INTENTION_CONTRACT.md` | Agent-owned post-decision adoption, suspension, resumption, completion, abandonment, and frozen intention evidence | `KlepIntentionSmoke`, `KlepAgentSmoke` |
-| `OBSERVER_CONTRACT.md` | recursive catalog validation/mapping, evidence-bound self-models, deterministic read-only queries and structural dependency proposals, read-only learned-expectation consumption, read-only projections, optional low-confidence deliberation, one-use eligible influence, and staleness | `KlepObserverSmoke` |
+| `EXECUTABLE_CONTRACT.md` | eligibility, guaranteed successful outputs, lifecycle, Solo/Tandem modes, authored Goal recipes, and structural-Goal lease boundaries | `KlepExecutableSmoke`, `KlepAgentSmoke` |
+| `AGENT_CONTRACT.md` | exclusive Agent Tick, runtime/Goal ownership, Tandem settlement, Solo arbitration, structural-Goal adoption and leased execution, projected satisfaction, optional learned-Desire contribution, navigation learning, confidence, and guidance request | `KlepAgentSmoke`, `KlepExecutableSmoke`, `KlepLearnedExpectationsSmoke` |
+| `INTENTION_CONTRACT.md` | Agent-owned post-decision adoption, suspension, resumption, completion, abandonment, structural-Goal outer identity, and frozen intention evidence | `KlepIntentionSmoke`, `KlepAgentSmoke` |
+| `OBSERVER_CONTRACT.md` | recursive catalog validation/mapping, evidence-bound self-models, deterministic read-only queries, structural dependency proposals and Goal Structural Solution V1, read-only learned-expectation consumption, read-only projections, optional low-confidence deliberation, one-use eligible influence, and staleness | `KlepObserverSmoke` |
 | `LEARNED_EXPECTATIONS_CONTRACT.md` | independent exact later-Key evidence plus ActionOwned raw Desire-effect critic estimates, support, variance, prediction error, confidence, read-only snapshots, and the eligibility-gated Agent consumption boundary | `KlepLearnedExpectationsSmoke`, `KlepAgentSmoke`, `KlepObserverSmoke` |
 | `EMOTION_CONTRACT.md` | explicit two-axis emotional body, motion, friction, and snapshots | `KlepEmotionSmoke` |
 | `DESIRE_CONTRACT.md` | project-authored preferred conditions, satisfaction, deficit, pressure, raw experienced effects, and attribution | `KlepDesireSmoke` |
 | `ETHICS_CONTRACT.md` | project-owned contextual evaluation and traced Emotion influence | `KlepEthicsSmoke` |
 | `MEMORY_CONTRACT.md` | causal experience, association, heat, trauma, fading, recall, and continuation state | `KlepMemorySmoke` |
 | `COGNITION_CONTRACT.md` | Ethics to Emotion to Memory causal composition and read-only Observer evidence | `KlepCognitionSmoke` |
+| `IMAGINATION_CONTRACT.md` | strong capability-bound manifests, weak non-runnable conjectures, strict compilation, fresh materialization, and the model/Agent trust boundary | `KlepImaginationSmoke` |
 
 The listed console suites are designated CoreContract regression suites. A
 passing suite proves only the rules it asserts; an untested edge case still
@@ -59,6 +60,10 @@ Migration is not CoreContract-complete until deterministic regressions prove:
 - Observer self-models and explicit query results bind the accepted map and
   immutable completed evidence without creating selection, execution, or Goal
   recipe authority; and
+- structural solutions use only accepted map evidence, preserve exact provider,
+  catalog, Goal, and delegated-root tenure bindings, while the Agent alone gates
+  adoption and leases one existing root runtime without cloning or double
+  learning; and
 - projected satisfaction, optional learned-Desire contribution, and optional
   low-confidence deliberation remain separate and inspectable; the learned
   contribution uses one frozen Desire snapshot and one frozen critic snapshot,
@@ -70,12 +75,11 @@ Migration is not CoreContract-complete until deterministic regressions prove:
 | Contract | Current status | Validation tier |
 |---|---|---|
 | `BEHAVIOR_LIBRARY_CONTRACT.md` | Candidate behavior-library and host-observation rules | `KlepBehaviorSmoke`, `KlepPlayerInputSmoke`, `KlepZombieSmoke` |
+| `ZOMBIE_TEST_CONTRACT.md` | Candidate Unity demonstration contract around accepted zombie intent and factual bite cognition | `KlepZombieCognitionSmoke`, `KlepUnityCompositionSmoke`, headless behavior suites, plus a required Play Mode walkthrough |
+| `OBSERVATORY_CONTRACT.md` | Candidate diagnostics and Editor presentation contract | `KlepObservatorySmoke` plus Unity import and Editor inspection |
 
-The separately distributed Unity package also carries candidate
-`ZOMBIE_TEST_CONTRACT.md` and `OBSERVATORY_CONTRACT.md` files, plus
-`OBSERVATORY_USAGE.md`. They and their Unity-specific validation projects are
-deliberately outside this engine-independent source mirror. `KlepUnityCompile`
-is a compile gate, not a behavioral contract suite.
+`OBSERVATORY_USAGE.md` is usage documentation, not semantic authority.
+`KlepUnityCompile` is a compile gate, not a behavioral contract suite.
 
 ## LegacyObserved status
 

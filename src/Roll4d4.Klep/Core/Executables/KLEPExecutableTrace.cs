@@ -78,13 +78,15 @@ namespace Roll4d4.Klep.Core
             bool isComplete,
             KLEPKeyId? activationKeyId,
             IEnumerable<KLEPGoalLayerRuntimeSnapshot> layers,
-            IEnumerable<KLEPExecutionResult> lastChildResults)
+            IEnumerable<KLEPExecutionResult> lastChildResults,
+            KLEPGoalStructuralRuntimeSnapshot structural)
         {
             CurrentLayerIndex = currentLayerIndex;
             IsComplete = isComplete;
             ActivationKeyId = activationKeyId;
             this.layers = CopyLayers(layers);
             this.lastChildResults = CopyResults(lastChildResults);
+            Structural = structural;
         }
 
         public int CurrentLayerIndex { get; }
@@ -93,6 +95,7 @@ namespace Roll4d4.Klep.Core
         public KLEPKeyId? ActivationKeyId { get; }
         public IReadOnlyList<KLEPGoalLayerRuntimeSnapshot> Layers => layers;
         public IReadOnlyList<KLEPExecutionResult> LastChildResults => lastChildResults;
+        public KLEPGoalStructuralRuntimeSnapshot Structural { get; }
 
         private static ReadOnlyCollection<KLEPGoalLayerRuntimeSnapshot> CopyLayers(
             IEnumerable<KLEPGoalLayerRuntimeSnapshot> source)
@@ -121,6 +124,60 @@ namespace Roll4d4.Klep.Core
                 {
                     copy.Add(result ?? throw new ArgumentException(
                         "Goal runtime snapshots cannot contain null child results.",
+                        nameof(source)));
+                }
+            }
+
+            return new ReadOnlyCollection<KLEPExecutionResult>(copy);
+        }
+    }
+
+    /// <summary>
+    /// Frozen evidence for an Agent-adopted structural solution. The solution
+    /// is immutable Observer evidence and the active step is only a snapshot of
+    /// the already-owned root runtime; neither value can drive execution.
+    /// </summary>
+    public sealed class KLEPGoalStructuralRuntimeSnapshot
+    {
+        private readonly ReadOnlyCollection<KLEPExecutionResult> lastStepResults;
+
+        internal KLEPGoalStructuralRuntimeSnapshot(
+            KLEPGoalStructuralSolution solution,
+            int currentStepIndex,
+            bool targetSatisfied,
+            KLEPExecutableRuntimeSnapshot activeStep,
+            IEnumerable<KLEPExecutionResult> lastStepResults)
+        {
+            Solution = solution;
+            CurrentStepIndex = currentStepIndex;
+            TargetSatisfied = targetSatisfied;
+            ActiveStep = activeStep;
+            this.lastStepResults = CopyResults(lastStepResults);
+        }
+
+        public KLEPGoalStructuralSolution Solution { get; }
+        public bool HasSolution => Solution != null &&
+            Solution.HasExecutableSolution;
+        public int CurrentStepIndex { get; }
+        public int StepCount => Solution == null ? 0 : Solution.Steps.Count;
+        public bool RouteComplete => HasSolution &&
+            CurrentStepIndex >= StepCount;
+        public bool TargetSatisfied { get; }
+        public KLEPExecutableRuntimeSnapshot ActiveStep { get; }
+        public IReadOnlyList<KLEPExecutionResult> LastStepResults =>
+            lastStepResults;
+
+        private static ReadOnlyCollection<KLEPExecutionResult> CopyResults(
+            IEnumerable<KLEPExecutionResult> source)
+        {
+            var copy = new List<KLEPExecutionResult>();
+            if (source != null)
+            {
+                foreach (KLEPExecutionResult result in source)
+                {
+                    copy.Add(result ?? throw new ArgumentException(
+                        "Structural Goal runtime snapshots cannot contain " +
+                        "null step results.",
                         nameof(source)));
                 }
             }

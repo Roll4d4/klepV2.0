@@ -40,6 +40,10 @@ internal static class Program
         VerifyStructuralDependencyProposalPreservesAuthoredAlternatives();
         VerifyStructuralDependencyDiagnosticsAndGoalOwnership();
         VerifyStructuralReasoningIsPureImmutableAndIdentityBound();
+        VerifyGoalStructuralSolutionOrdersDependenciesBeforeConsumers();
+        VerifyGoalStructuralSolutionUsesStableCanonicalTieBreak();
+        VerifyGoalStructuralSolutionRetainsExternalAndNegativeConditions();
+        VerifyGoalStructuralSolutionRejectsDependencyCycles();
         VerifyExpectationLedgerOwnershipAndOwnerBinding();
         VerifyExpectationEvidenceMathSeparationReplayAndImmutability();
         VerifyExpectationReasoningIsNonAuthoritative();
@@ -1596,6 +1600,313 @@ internal static class Program
             "a structural proposal cannot open a Lock or make its blocked producer eligible on the next Tick");
     }
 
+    private static void VerifyGoalStructuralSolutionOrdersDependenciesBeforeConsumers()
+    {
+        KLEPKeyDefinition gathered = Key("observer.solution.gathered");
+        KLEPKeyDefinition prepared = Key("observer.solution.prepared");
+        KLEPKeyDefinition target = Key("observer.solution.target");
+        var gather = new ProbeExecutable(
+            Definition(
+                "observer.solution.gather",
+                0f,
+                declaredOutputs: new[] { gathered }),
+            KLEPExecutableTickStatus.Running);
+        var prepare = new ProbeExecutable(
+            Definition(
+                "observer.solution.prepare",
+                0f,
+                validationLocks: new[]
+                {
+                    Lock("observer.solution.prepare.requires-gathered", gathered)
+                },
+                declaredOutputs: new[] { prepared }),
+            KLEPExecutableTickStatus.Running);
+        var finish = new ProbeExecutable(
+            Definition(
+                "observer.solution.finish",
+                0f,
+                validationLocks: new[]
+                {
+                    Lock("observer.solution.finish.requires-prepared", prepared)
+                },
+                declaredOutputs: new[] { target }),
+            KLEPExecutableTickStatus.Running);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                "observer.solution.goal",
+                0f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        KLEPExecutableStructuralMap map = KLEPExecutableStructuralMapper.Build(
+            "observer.solution.revision",
+            new[]
+            {
+                new KLEPExecutableCatalogRoot(
+                    finish, "observer.solution.tenure.finish"),
+                new KLEPExecutableCatalogRoot(
+                    goal, "observer.solution.tenure.goal"),
+                new KLEPExecutableCatalogRoot(
+                    prepare, "observer.solution.tenure.prepare"),
+                new KLEPExecutableCatalogRoot(
+                    gather, "observer.solution.tenure.gather")
+            });
+
+        KLEPGoalStructuralSolution first = KLEPGoalStructuralSolver.Solve(
+            map,
+            new KLEPGoalStructuralSolutionRequest(
+                goal.StableId,
+                "observer.solution.tenure.goal",
+                target.Id));
+        KLEPGoalStructuralSolution second = KLEPGoalStructuralSolver.Solve(
+            map,
+            new KLEPGoalStructuralSolutionRequest(
+                goal.StableId,
+                "observer.solution.tenure.goal",
+                target.Id));
+
+        Expect(first.Disposition == KLEPGoalStructuralSolutionDisposition.Solved &&
+               first.HasExecutableSolution &&
+               first.Steps.Count == 3 &&
+               first.Steps[0].ExecutableStableId == gather.StableId &&
+               first.Steps[1].ExecutableStableId == prepare.StableId &&
+               first.Steps[2].ExecutableStableId == finish.StableId,
+            "Goal Structural Solution orders every prerequisite producer before its consumer regardless of root registration order");
+        Expect(first.Steps[0].RequiredOutputKeyIds.Count == 1 &&
+               first.Steps[0].RequiredOutputKeyIds[0] == gathered.Id &&
+               first.Steps[1].RequiredOutputKeyIds.Count == 1 &&
+               first.Steps[1].RequiredOutputKeyIds[0] == prepared.Id &&
+               first.Steps[2].RequiredOutputKeyIds.Count == 1 &&
+               first.Steps[2].RequiredOutputKeyIds[0] == target.Id &&
+               first.Cost.DistinctStepCount == 3 &&
+               first.Cost.DependencyDepth == 3 &&
+               first.Cost.IsLocallyClosed,
+            "each structural step retains the exact output it proves and the route reports its bounded cost");
+        Expect(first.CanonicalRoute == second.CanonicalRoute &&
+               first.Provenance.CatalogFingerprint.Equals(map.Fingerprint) &&
+               first.Provenance.RequestingGoalStableId == goal.StableId &&
+               first.Provenance.RequestingGoalTenureId ==
+                   "observer.solution.tenure.goal" &&
+               first.Provenance.TargetKeyId == target.Id,
+            "repeating one structural question returns the same canonical route and exact map, Goal-tenure, and target provenance");
+    }
+
+    private static void VerifyGoalStructuralSolutionUsesStableCanonicalTieBreak()
+    {
+        KLEPKeyDefinition target = Key("observer.solution.tie.target");
+        var canonicalFirst = new ProbeExecutable(
+            Definition(
+                "observer.solution.tie.a",
+                0f,
+                declaredOutputs: new[] { target }),
+            KLEPExecutableTickStatus.Running);
+        var canonicalSecond = new ProbeExecutable(
+            Definition(
+                "observer.solution.tie.b",
+                0f,
+                declaredOutputs: new[] { target }),
+            KLEPExecutableTickStatus.Running);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                "observer.solution.tie.goal",
+                0f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        var forwardRoots = new[]
+        {
+            new KLEPExecutableCatalogRoot(
+                canonicalFirst, "observer.solution.tie.tenure.a"),
+            new KLEPExecutableCatalogRoot(
+                canonicalSecond, "observer.solution.tie.tenure.b"),
+            new KLEPExecutableCatalogRoot(
+                goal, "observer.solution.tie.tenure.goal")
+        };
+        var reverseRoots = new[]
+        {
+            new KLEPExecutableCatalogRoot(
+                goal, "observer.solution.tie.tenure.goal"),
+            new KLEPExecutableCatalogRoot(
+                canonicalSecond, "observer.solution.tie.tenure.b"),
+            new KLEPExecutableCatalogRoot(
+                canonicalFirst, "observer.solution.tie.tenure.a")
+        };
+        KLEPExecutableStructuralMap forward = KLEPExecutableStructuralMapper.Build(
+            "observer.solution.tie.revision", forwardRoots);
+        KLEPExecutableStructuralMap reverse = KLEPExecutableStructuralMapper.Build(
+            "observer.solution.tie.revision", reverseRoots);
+        var request = new KLEPGoalStructuralSolutionRequest(
+            goal.StableId,
+            "observer.solution.tie.tenure.goal",
+            target.Id);
+
+        KLEPGoalStructuralSolution first = KLEPGoalStructuralSolver.Solve(
+            forward, request);
+        KLEPGoalStructuralSolution second = KLEPGoalStructuralSolver.Solve(
+            reverse, request);
+
+        Expect(first.Disposition == KLEPGoalStructuralSolutionDisposition.Solved &&
+               second.Disposition == KLEPGoalStructuralSolutionDisposition.Solved &&
+               first.Steps.Count == 1 &&
+               second.Steps.Count == 1 &&
+               first.Steps[0].ExecutableStableId == canonicalFirst.StableId &&
+               second.Steps[0].ExecutableStableId == canonicalFirst.StableId,
+            "equal-cost target producers resolve to the ordinal canonical route rather than registration order");
+        Expect(forward.Fingerprint.Equals(reverse.Fingerprint) &&
+               first.CanonicalRoute == second.CanonicalRoute &&
+               first.Cost.DistinctStepCount == second.Cost.DistinctStepCount,
+            "equivalent catalogs and equal-cost solutions have stable fingerprints, canonical identities, and costs");
+    }
+
+    private static void VerifyGoalStructuralSolutionRetainsExternalAndNegativeConditions()
+    {
+        KLEPKeyDefinition external = Key("observer.solution.condition.external");
+        KLEPKeyDefinition danger = Key("observer.solution.condition.danger");
+        KLEPKeyDefinition target = Key("observer.solution.condition.target");
+        const string finishId = "observer.solution.condition.finish";
+        const string lockId = "observer.solution.condition.lock";
+        var finish = new ProbeExecutable(
+            Definition(
+                finishId,
+                0f,
+                validationLocks: new[]
+                {
+                    new KLEPLock(
+                        lockId,
+                        "external present and danger absent",
+                        new KLEPAll(
+                            new KLEPKeyPresent(external.Id.Value),
+                            new KLEPNot(
+                                new KLEPKeyPresent(danger.Id.Value))))
+                },
+                declaredOutputs: new[] { target }),
+            KLEPExecutableTickStatus.Running);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                "observer.solution.condition.goal",
+                0f,
+                kind: KLEPExecutableKind.Goal),
+            target.Id);
+        KLEPExecutableStructuralMap map = KLEPExecutableStructuralMapper.Build(
+            "observer.solution.condition.revision",
+            new[]
+            {
+                new KLEPExecutableCatalogRoot(
+                    goal, "observer.solution.condition.tenure.goal"),
+                new KLEPExecutableCatalogRoot(
+                    finish, "observer.solution.condition.tenure.finish")
+            });
+
+        KLEPGoalStructuralSolution solution = KLEPGoalStructuralSolver.Solve(
+            map,
+            new KLEPGoalStructuralSolutionRequest(
+                goal.StableId,
+                "observer.solution.condition.tenure.goal",
+                target.Id));
+        KLEPGoalStructuralRuntimeCondition externalCondition =
+            FindStructuralCondition(
+                solution,
+                KLEPGoalStructuralRuntimeConditionKind.ExternalKeyRequired);
+        KLEPGoalStructuralRuntimeCondition negativeCondition =
+            FindStructuralCondition(
+                solution,
+                KLEPGoalStructuralRuntimeConditionKind
+                    .NegativeExpressionMustRemainFalse);
+
+        Expect(solution.Disposition ==
+                   KLEPGoalStructuralSolutionDisposition.Conditional &&
+               solution.HasExecutableSolution &&
+               solution.Steps.Count == 1 &&
+               solution.Steps[0].ExecutableStableId == finish.StableId &&
+               solution.RuntimeConditions.Count == 2 &&
+               solution.Cost.ExternalConditionCount == 1 &&
+               solution.Cost.NegativeConditionCount == 1 &&
+               !solution.Cost.IsLocallyClosed,
+            "an executable route with external and Not requirements remains a Conditional solution with both costs visible");
+        Expect(externalCondition.KeyId == external.Id &&
+               externalCondition.RequiredByExecutableStableId == finishId &&
+               externalCondition.LockStableId == lockId &&
+               externalCondition.Expression.Kind ==
+                   KLEPLockExpressionKind.KeyPresent,
+            "a positive leaf without a producer remains an exact external runtime condition");
+        Expect(negativeCondition.KeyId == danger.Id &&
+               negativeCondition.RequiredByExecutableStableId == finishId &&
+               negativeCondition.LockStableId == lockId &&
+               negativeCondition.Expression.Kind == KLEPLockExpressionKind.Not,
+            "a Not expression remains an exact negative runtime condition instead of becoming an invented removal effect");
+        Expect(HasStructuralSolutionDiagnostic(
+                   solution,
+                   KLEPGoalStructuralSolutionDiagnosticCode
+                       .MissingPrerequisiteProducer,
+                   external.Id.Value),
+            "the Conditional solution diagnoses the absent external producer without rejecting the usable route");
+    }
+
+    private static void VerifyGoalStructuralSolutionRejectsDependencyCycles()
+    {
+        KLEPKeyDefinition a = Key("observer.solution.cycle.a");
+        KLEPKeyDefinition b = Key("observer.solution.cycle.b");
+        var produceA = new ProbeExecutable(
+            Definition(
+                "observer.solution.cycle.produce-a",
+                0f,
+                validationLocks: new[]
+                {
+                    Lock("observer.solution.cycle.a-requires-b", b)
+                },
+                declaredOutputs: new[] { a }),
+            KLEPExecutableTickStatus.Running);
+        var produceB = new ProbeExecutable(
+            Definition(
+                "observer.solution.cycle.produce-b",
+                0f,
+                validationLocks: new[]
+                {
+                    Lock("observer.solution.cycle.b-requires-a", a)
+                },
+                declaredOutputs: new[] { b }),
+            KLEPExecutableTickStatus.Running);
+        var goal = new KLEPStructuralGoal(
+            Definition(
+                "observer.solution.cycle.goal",
+                0f,
+                kind: KLEPExecutableKind.Goal),
+            a.Id);
+        KLEPExecutableStructuralMap map = KLEPExecutableStructuralMapper.Build(
+            "observer.solution.cycle.revision",
+            new[]
+            {
+                new KLEPExecutableCatalogRoot(
+                    produceB, "observer.solution.cycle.tenure.b"),
+                new KLEPExecutableCatalogRoot(
+                    goal, "observer.solution.cycle.tenure.goal"),
+                new KLEPExecutableCatalogRoot(
+                    produceA, "observer.solution.cycle.tenure.a")
+            });
+
+        KLEPGoalStructuralSolution solution = KLEPGoalStructuralSolver.Solve(
+            map,
+            new KLEPGoalStructuralSolutionRequest(
+                goal.StableId,
+                "observer.solution.cycle.tenure.goal",
+                a.Id));
+
+        Expect(solution.Disposition ==
+                   KLEPGoalStructuralSolutionDisposition.NoSolution &&
+               !solution.HasExecutableSolution &&
+               solution.Steps.Count == 0 &&
+               solution.RuntimeConditions.Count == 0 &&
+               solution.CanonicalRoute == string.Empty,
+            "a purely cyclic dependency graph yields no structural solution and no executable fallback");
+        Expect(HasStructuralSolutionDiagnostic(
+                   solution,
+                   KLEPGoalStructuralSolutionDiagnosticCode.DependencyCycle,
+                   a.Id.Value) &&
+               HasStructuralSolutionDiagnostic(
+                   solution,
+                   KLEPGoalStructuralSolutionDiagnosticCode.NoUsableProducer,
+                   a.Id.Value),
+            "cycle rejection retains explicit dependency-cycle and unusable-producer diagnostics");
+    }
+
     private static void VerifyExpectationLedgerOwnershipAndOwnerBinding()
     {
         var defaultObserver = new KLEPObserver(
@@ -2375,6 +2686,50 @@ internal static class Program
                   diagnostic.Path.Contains(evidence, StringComparison.Ordinal)) ||
                  (diagnostic.Message != null &&
                   diagnostic.Message.Contains(evidence, StringComparison.Ordinal))))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static KLEPGoalStructuralRuntimeCondition FindStructuralCondition(
+        KLEPGoalStructuralSolution solution,
+        KLEPGoalStructuralRuntimeConditionKind kind)
+    {
+        foreach (KLEPGoalStructuralRuntimeCondition condition in
+                 solution.RuntimeConditions)
+        {
+            if (condition.Kind == kind)
+            {
+                return condition;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Structural solution did not retain condition '{kind}'.");
+    }
+
+    private static bool HasStructuralSolutionDiagnostic(
+        KLEPGoalStructuralSolution solution,
+        KLEPGoalStructuralSolutionDiagnosticCode code,
+        string evidence)
+    {
+        foreach (KLEPGoalStructuralSolutionDiagnostic diagnostic in
+                 solution.Diagnostics)
+        {
+            if (diagnostic.Code == code &&
+                ((diagnostic.Path != null &&
+                  diagnostic.Path.Contains(evidence, StringComparison.Ordinal)) ||
+                 (diagnostic.KeyId.HasValue &&
+                  diagnostic.KeyId.Value.Value == evidence) ||
+                 (diagnostic.ExecutableStableId != null &&
+                  diagnostic.ExecutableStableId.Contains(
+                      evidence, StringComparison.Ordinal)) ||
+                 (diagnostic.Message != null &&
+                  diagnostic.Message.Contains(
+                      evidence, StringComparison.Ordinal))))
             {
                 return true;
             }
